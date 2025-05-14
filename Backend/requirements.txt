@@ -1,0 +1,11 @@
+# requirements.txt
+
+httpx
+fastapi
+praw
+pandas
+dateparser
+transformers
+scikit-learn
+python-dotenv
+nltk
