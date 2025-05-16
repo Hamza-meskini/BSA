@@ -19,6 +19,30 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: 'Brand Buzz Analyzer',
   description: 'Analyze brand sentiment across different platforms.',
+  icons: {
+    icon: [
+      {
+        url: '/favicon.ico',
+        sizes: 'any',
+      },
+      {
+        url: '/icon.png',
+        type: 'image/png',
+        sizes: '32x32',
+      },
+      {
+        url: '/apple-icon.png',
+        type: 'image/png',
+        sizes: '180x180',
+      },
+    ],
+    apple: [
+      {
+        url: '/apple-icon.png',
+        sizes: '180x180',
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

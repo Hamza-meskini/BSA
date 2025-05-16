@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -14,6 +13,7 @@ interface TotalEmotionEngagementChartProps {
 // Using a similar config to EmotionDistributionPieChart for consistency
 const emotionVisualConfig = {
   joy: { label: "Joy", color: "hsl(var(--chart-1))" },
+  love: { label: "Love", color: "hsl(var(--chart-5))" },
   anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },

@@ -1,4 +1,3 @@
-
 "use client";
 
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
@@ -42,7 +41,7 @@ export function SentimentTrendChart({data}: SentimentTrendChartProps) {
   // Display a message if no data is available
   if (!data || data.length === 0) {
     return (
-      <Card>
+      <Card id="sentiment-trend-chart">
         <CardHeader>
           <CardTitle>Sentiment Trend</CardTitle>
            <CardDescription>Trend of sentiment over the selected period.</CardDescription>
@@ -56,7 +55,7 @@ export function SentimentTrendChart({data}: SentimentTrendChartProps) {
 
 
   return (
-    <Card>
+    <Card id="sentiment-trend-chart">
       <CardHeader>
         <CardTitle>Sentiment Trend</CardTitle>
         <CardDescription>Trend of sentiment counts over the selected period.</CardDescription>

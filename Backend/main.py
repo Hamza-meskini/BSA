@@ -1,10 +1,15 @@
 # --- main.py ---
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Dict, List, Any, Optional
 # Import only the specific function needed from API2.py
 # The import itself will trigger the model loading in API2.py
 from API import analyze_brand
+from pdf_generator import PDFGenerator
 import logging # Configure logging for main app too
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,6 +26,20 @@ app.add_middleware(
     allow_headers=["*", "Content-Type", "Accept", "Authorization"],
     expose_headers=["*"]
 )
+
+class SentimentData(BaseModel):
+    count: float
+    percentage: float
+
+class TopicData(BaseModel):
+    keywords: List[str]
+    representative_posts: List[str]
+
+class PDFReportData(BaseModel):
+    analysis_data: Dict[str, Any]
+    sentiment_data: Dict[str, SentimentData]
+    emotion_data: Dict[str, SentimentData]
+    topic_data: List[TopicData]
 
 # --- API Endpoint ---
 @app.get("/api/{brand_name}/{days_ago}")
@@ -42,6 +61,36 @@ async def api_analyze_brand_endpoint(brand_name: str, days_ago: int):
         logger.exception(f"An unexpected error occurred during analysis for {brand_name}: {e}")
         # Return a generic error message to the client
         raise HTTPException(status_code=500, detail=f"An internal error occurred during analysis.")
+
+@app.post("/generate-pdf-report")
+async def generate_pdf_report(request: Request):
+    try:
+        data = await request.json()
+        logger.info(f"Received PDF generation request with data: {data}")
+        
+        # Extract chart data
+        charts = data.get('charts', [])
+        logger.info(f"Number of charts received: {len(charts)}")
+        if charts:
+            logger.info(f"First chart title: {charts[0].get('title')}")
+            logger.info(f"First chart data length: {len(charts[0].get('data', ''))}")
+        
+        # Generate PDF
+        pdf_generator = PDFGenerator()
+        pdf_path = pdf_generator.generate_pdf(
+            analysis_data=data['analysis_data'],
+            sentiment_data=data['sentiment_data'],
+            emotion_data=data['emotion_data'],
+            topic_data=data['topic_data'],
+            charts=charts,
+            ai_analysis=data.get('ai_analysis'),
+            platform_stats=data.get('platform_stats')
+        )
+        
+        return FileResponse(pdf_path, media_type='application/pdf')
+    except Exception as e:
+        logger.error(f"Error generating PDF: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Other Example/Utility Endpoints ---
 @app.get("/")

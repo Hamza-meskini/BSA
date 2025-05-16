@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useMemo } from 'react';
@@ -24,12 +23,13 @@ interface PlatformEmotionComparisonChartProps {
 // Consistent emotion chart configuration
 const emotionChartConfig = {
   joy: { label: "Joy", color: "hsl(var(--chart-1))" },
+  love: { label: "Love", color: "hsl(var(--chart-5))" },
   anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" }, // Adjusted color
+  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
   surprise: { label: "Surprise", color: "hsl(var(--accent))" },
-  neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" }, // Emotion neutral
+  neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
 } satisfies Record<string, { label: string; color: string }>;
 
 const PlatformEmotionComparisonChart: React.FC<PlatformEmotionComparisonChartProps> = ({ data }) => {

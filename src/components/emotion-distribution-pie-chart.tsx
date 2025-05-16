@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -26,9 +25,9 @@ const emotionChartConfig = {
 const EmotionDistributionPieChart: React.FC<EmotionDistributionPieChartProps> = ({ distribution }) => {
   const pieData = Object.entries(distribution)
     .map(([name, value]) => ({
-      name: emotionChartConfig[name as keyof OverallEmotionDistribution]?.label || name,
+      name: emotionChartConfig[name as keyof typeof emotionChartConfig]?.label || name,
       value,
-      fill: emotionChartConfig[name as keyof OverallEmotionDistribution]?.color || '#8884d8', // Default color
+      fill: emotionChartConfig[name as keyof typeof emotionChartConfig]?.color || '#8884d8', // Default color
     }))
     .filter(entry => entry.value > 0); // Only show emotions with counts
 
@@ -47,7 +46,7 @@ const EmotionDistributionPieChart: React.FC<EmotionDistributionPieChartProps> = 
   }
 
   return (
-    <Card>
+    <Card id="emotion-distribution-pie-chart">
       <CardHeader>
         <CardTitle>Overall Emotion Distribution</CardTitle>
         <CardDescription>Breakdown of all emotions during the period.</CardDescription>

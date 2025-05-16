@@ -44,6 +44,7 @@ export interface PlatformLikes {
 export interface PlatformEmotionData {
   platform: string; // e.g., 'twitter', 'reddit', 'news'
   joy: number;
+  love: number;
   anger: number;
   sadness: number;
   fear: number;
@@ -70,6 +71,7 @@ export interface SentimentSummaryData {
 export interface EmotionData {
   date: string;
   joy: number;
+  love: number;
   anger: number;
   sadness: number;
   fear: number;
@@ -120,6 +122,7 @@ export interface EngagementScores {
  */
 export interface EmotionEngagementScores {
   joy: number;
+  love: number;
   anger: number;
   sadness: number;
   fear: number;

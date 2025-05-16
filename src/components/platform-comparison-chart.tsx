@@ -1,4 +1,3 @@
-
 "use client";
 
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
@@ -41,7 +40,7 @@ export function PlatformComparisonChart({ data }: PlatformComparisonChartProps) 
    }, [data]);
 
   return (
-    <Card>
+    <Card id="platform-comparison-chart">
       <CardHeader>
         <CardTitle>Platform Sentiment Comparison</CardTitle>
         <CardDescription>Overall sentiment distribution (positive, negative, neutral) across platforms.</CardDescription>

@@ -9,3 +9,5 @@ transformers
 scikit-learn
 python-dotenv
 nltk
+weasyprint
+jinja2

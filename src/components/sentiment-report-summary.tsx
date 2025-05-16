@@ -8,6 +8,7 @@ import {Loader2, FileDown, Lightbulb, TrendingUp, AlertCircle, Wand2} from "luci
 import {useToast} from "@/hooks/use-toast";
 import {Accordion, AccordionContent, AccordionItem, AccordionTrigger} from "@/components/ui/accordion";
 import {motion, AnimatePresence} from "framer-motion";
+import html2canvas from "html2canvas";
 
 interface BackendResponse {
   summary: {
@@ -98,7 +99,7 @@ export function SentimentReportSummary({
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState<boolean>(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
-  const [isReportGenerated, setIsReportGenerated] = useState(false);
+  const [isReportGenerated, setIsReportGenerated] = useState<boolean>(false);
   const [isRegenerateDisabled, setIsRegenerateDisabled] = useState(false);
   const { toast } = useToast();
 
@@ -215,16 +216,205 @@ export function SentimentReportSummary({
     
     try {
       setIsGeneratingReport(true);
-      console.log("Generating report..."); // Placeholder for report generation logic
-      // Simulate report generation (e.g., PDF creation)
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Get the brand name from the analysis data
+      const brandName = analysisData.message?.split(': ')[1] || '';
 
-      // Example: Trigger a download or open a new page
-      // For now, just show a toast message
-      toast({
-        title: "Report Generation Initiated",
-        description: "Your sentiment report will be ready shortly. (Feature coming soon!)",
+      // Wait for charts to be fully rendered
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Capture charts as base64 images
+      const charts = [];
+      
+      // Helper function to capture chart
+      const captureChart = async (id: string, title: string) => {
+        const element = document.getElementById(id);
+        console.log(`Attempting to capture chart ${id}:`, element);
+        
+        if (!element) {
+          console.warn(`Chart element ${id} not found`);
+          return;
+        }
+
+        // Ensure the element is visible
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+          console.warn(`Chart element ${id} has zero dimensions`);
+          return;
+        }
+
+        try {
+          const canvas = await html2canvas(element, {
+            scale: 2, // Increase resolution
+            useCORS: true, // Enable CORS for images
+            logging: true, // Enable logging
+            backgroundColor: '#ffffff', // Set white background
+            width: rect.width,
+            height: rect.height,
+            windowWidth: rect.width,
+            windowHeight: rect.height,
+            onclone: (clonedDoc) => {
+              const clonedElement = clonedDoc.getElementById(id);
+              if (clonedElement) {
+                clonedElement.style.transform = 'none';
+                clonedElement.style.opacity = '1';
+              }
+            }
+          });
+          
+          console.log(`Successfully captured chart ${id}`);
+          return {
+            title,
+            data: canvas.toDataURL('image/png')
+          };
+        } catch (error) {
+          console.error(`Error capturing chart ${id}:`, error);
+          return null;
+        }
+      };
+
+      // Capture all charts
+      const chartPromises = [
+        captureChart('overall-sentiment-pie-chart', 'Overall Sentiment Distribution'),
+        captureChart('sentiment-trend-chart', 'Sentiment Trend'),
+        captureChart('emotion-distribution-pie-chart', 'Emotion Distribution'),
+        captureChart('platform-comparison-chart', 'Platform Comparison')
+      ];
+
+      const capturedCharts = await Promise.all(chartPromises);
+      charts.push(...capturedCharts.filter(Boolean));
+
+      console.log('Captured charts:', charts.length);
+      console.log('Chart data sample:', charts[0]?.data?.substring(0, 100) + '...');
+      
+      // Prepare the data for PDF generation
+      const pdfData = {
+        analysis_data: {
+          "Total Posts": analysisData.summary.totalMentions,
+          "Analysis Period": "Current Analysis",
+          "Brand Name": brandName,
+          "Platforms Analyzed": analysisData.charts.platformComparison.map(p => p.platform).join(", ")
+        },
+        sentiment_data: {
+          "Positive": {
+            count: Math.round(analysisData.charts.overallSentimentDistribution.positive),
+            percentage: analysisData.charts.overallSentimentDistribution.positive
+          },
+          "Negative": {
+            count: Math.round(analysisData.charts.overallSentimentDistribution.negative),
+            percentage: analysisData.charts.overallSentimentDistribution.negative
+          },
+          "Neutral": {
+            count: Math.round(analysisData.charts.overallSentimentDistribution.neutral),
+            percentage: analysisData.charts.overallSentimentDistribution.neutral
+          }
+        },
+        emotion_data: Object.entries(analysisData.charts.overallEmotionDistribution).reduce((acc, [emotion, value]) => ({
+          ...acc,
+          [emotion]: {
+            count: Math.round(value),
+            percentage: value
+          }
+        }), {}),
+        topic_data: analysisData.charts.wordCloud.map(word => ({
+          keywords: [word.text],
+          representative_posts: [`Frequency: ${word.frequency}, Sentiment: ${word.sentiment}`]
+        })),
+        charts: charts,
+        ai_analysis: summary ? {
+          summary: summary,
+          key_insights: keyInsights,
+          recommendations: recommendations
+        } : null,
+        platform_stats: analysisData.charts.platformComparison.reduce((acc, platform) => {
+          const emotionData = analysisData.charts.platformEmotionComparison.find(p => p.platform === platform.platform);
+          const total_sentiment = platform.positive + platform.negative + platform.neutral;
+          const total_emotion = emotionData ? 
+            (emotionData.joy + emotionData.anger + emotionData.sadness + emotionData.fear + emotionData.neutral) : 0;
+          
+          return {
+            ...acc,
+            [platform.platform]: {
+              sentiment_distribution: {
+                positive: Math.round(platform.positive),
+                negative: Math.round(platform.negative),
+                neutral: Math.round(platform.neutral),
+                total: total_sentiment
+              },
+              emotion_distribution: {
+                joy: Math.round(emotionData?.joy || 0),
+                anger: Math.round(emotionData?.anger || 0),
+                sadness: Math.round(emotionData?.sadness || 0),
+                fear: Math.round(emotionData?.fear || 0),
+                neutral: Math.round(emotionData?.neutral || 0),
+                total: total_emotion
+              },
+              dominant_sentiment: Object.entries({
+                positive: platform.positive,
+                negative: platform.negative,
+                neutral: platform.neutral
+              }).reduce((a, b) => a[1] > b[1] ? a : b)[0],
+              dominant_emotion: emotionData ? Object.entries({
+                joy: emotionData.joy,
+                anger: emotionData.anger,
+                sadness: emotionData.sadness,
+                fear: emotionData.fear,
+                neutral: emotionData.neutral
+              }).reduce((a, b) => a[1] > b[1] ? a : b)[0] : 'neutral'
+            }
+          };
+        }, {})
+      };
+
+      console.log('Platform comparison data:', analysisData.charts.platformComparison);
+      console.log('Platform emotion data:', analysisData.charts.platformEmotionComparison);
+      console.log('PDF data structure:', {
+        ...pdfData,
+        charts: pdfData.charts.filter((c): c is NonNullable<typeof c> => c !== null).map(c => ({ title: c.title, dataLength: c.data.length }))
       });
+      
+      // Make the API call to generate the PDF
+      const response = await fetch('http://localhost:8000/generate-pdf-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/pdf'
+        },
+        body: JSON.stringify(pdfData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Get the PDF blob from the response
+      const blob = await response.blob();
+      
+      // Create a URL for the blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Create a temporary link element
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `analysis_report_${brandName}_${new Date().toISOString().slice(0,19).replace(/[:]/g, '')}.pdf`;
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up the URL
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Report Generated",
+        description: "Your sentiment analysis report has been downloaded.",
+      });
+
+      // Set report as generated
+      setIsReportGenerated(true);
     } catch (error) {
       console.error("Failed to generate report:", error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -235,6 +425,20 @@ export function SentimentReportSummary({
       });
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  // Helper function to get chart images as base64
+  const getChartImage = async (chartId: string): Promise<string> => {
+    const chartElement = document.getElementById(chartId);
+    if (!chartElement) return '';
+
+    try {
+      const canvas = await html2canvas(chartElement);
+      return canvas.toDataURL('image/png').split(',')[1];
+    } catch (error) {
+      console.error(`Error capturing chart ${chartId}:`, error);
+      return '';
     }
   };
 
@@ -419,7 +623,7 @@ export function SentimentReportSummary({
         <div className="w-full flex justify-end">
           <Button
             onClick={handleGenerateReport}
-            disabled={isGeneratingReport || isGeneratingSummary}
+            disabled={isGeneratingReport || isGeneratingSummary || isReportGenerated}
             variant="outline"
             className="group hover:bg-primary hover:text-primary-foreground transition-all duration-300 text-lg"
           >
@@ -427,6 +631,11 @@ export function SentimentReportSummary({
               <>
                 <Loader2 className="mr-2 h-5 w-5 animate-spin"/>
                 Generating Report...
+              </>
+            ) : isReportGenerated ? (
+              <>
+                <FileDown className="mr-2 h-5 w-5"/>
+                Report Generated
               </>
             ) : (
               <>

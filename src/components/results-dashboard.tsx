@@ -197,17 +197,9 @@ export function ResultsDashboard({isLoading, results}: ResultsDashboardProps) {
       {/* Section for AI Summary Report */}
       <div id="ai-summary-report-section" className="animate-fade-in-up opacity-0 animation-delay-1200">
         <SentimentReportSummary
-              sentimentData={results.summary}
-              keywords={{ // Ensure KeywordWordCloud provides data suitable for this
-              positive: results.charts.wordCloud
-                  .filter((k) => k.sentiment === "positive")
-                  .map((k) => k.text),
-              negative: results.charts.wordCloud
-                  .filter((k) => k.sentiment === "negative")
-                  .map((k) => k.text),
-              }}
-          />
-        </div>
+          analysisData={results}
+        />
+      </div>
     </section>
   );
 }

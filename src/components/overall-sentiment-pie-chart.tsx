@@ -8,7 +8,15 @@ import type { OverallSentimentDistribution } from '@/types/analysis'; // Changed
 import { ChartContainer, ChartTooltipContent, ChartLegendContent } from '@/components/ui/chart';
 
 interface OverallSentimentPieChartProps {
-  distribution: OverallSentimentDistribution; // Changed prop name and type
+  distribution: {
+    positive: number;
+    negative: number;
+    neutral: number;
+  };
+  dominantSentiment: {
+    sentiment: 'positive' | 'negative' | 'neutral';
+    percentage: number;
+  };
 }
 
 const sentimentChartConfig = {
@@ -17,8 +25,7 @@ const sentimentChartConfig = {
   neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" }, // Gray
 } satisfies Record<"positive" | "negative" | "neutral", { label: string; color: string }>;
 
-
-const OverallSentimentPieChart: React.FC<OverallSentimentPieChartProps> = ({ distribution }) => {
+const OverallSentimentPieChart: React.FC<OverallSentimentPieChartProps> = ({ distribution, dominantSentiment }) => {
   // Directly use the distribution prop
   const pieData = [
     { name: sentimentChartConfig.positive.label, value: distribution.positive, fill: sentimentChartConfig.positive.color },
@@ -41,7 +48,7 @@ const OverallSentimentPieChart: React.FC<OverallSentimentPieChartProps> = ({ dis
   }
 
   return (
-    <Card>
+    <Card id="overall-sentiment-pie-chart">
       <CardHeader>
         <CardTitle>Overall Sentiment Distribution</CardTitle>
         <CardDescription>Breakdown of overall positive, negative, and neutral mentions.</CardDescription>

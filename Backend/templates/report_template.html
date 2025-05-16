@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentiment Analysis Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+        .sentiment-positive {
+            color: #28a745;
+        }
+        .sentiment-negative {
+            color: #dc3545;
+        }
+        .sentiment-neutral {
+            color: #6c757d;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #eee;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        .ai-analysis {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .ai-analysis h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        .insights-list, .recommendations-list {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .insights-list li, .recommendations-list li {
+            margin-bottom: 10px;
+            padding-left: 20px;
+            position: relative;
+        }
+        .insights-list li:before, .recommendations-list li:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #2c3e50;
+        }
+        .platform-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .platform-table th, .platform-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        .platform-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+        .platform-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .keywords-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .keywords-table th,
+        .keywords-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        .keywords-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+        .keywords-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .keywords-list li {
+            background-color: #f0f0f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .topic-section {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .representative-posts {
+            margin-top: 15px;
+        }
+        .representative-posts h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .representative-posts ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .representative-posts li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .representative-posts li:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Sentiment Analysis Report</h1>
+        <p>Generated on {{ generation_date }}</p>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">General Analysis</h2>
+        <table>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
+            {% for key, value in analysis_data.items() %}
+            <tr>
+                <td>{{ key }}</td>
+                <td>{{ value }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">Sentiment Distribution</h2>
+        <table>
+            <tr>
+                <th>Sentiment</th>
+                <th>Percentage</th>
+            </tr>
+            {% for sentiment, data in sentiment_data.items() %}
+            <tr>
+                <td class="sentiment-{{ sentiment.lower() }}">{{ sentiment }}</td>
+                <td>{{ "%.1f"|format(data.percentage) }}%</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div style="page-break-before: always;"></div>
+
+    <div class="section">
+        <h2 class="section-title">Emotion Distribution</h2>
+        <table>
+            <tr>
+                <th>Emotion</th>
+                <th>Percentage</th>
+            </tr>
+            {% for emotion, data in emotion_data.items() %}
+            {% if data.percentage > 0 %}
+            <tr>
+                <td>{{ emotion }}</td>
+                <td>{{ "%.1f"|format(data.percentage) }}%</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">Platform Analysis</h2>
+        
+        <h3>Sentiment Engagement by Platform</h3>
+        <table class="platform-table">
+            <thead>
+                <tr>
+                    <th>Platform</th>
+                    <th>Positive</th>
+                    <th>Negative</th>
+                    <th>Neutral</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for platform, data in platform_stats.items() %}
+                <tr>
+                    <td>{{ platform }}</td>
+                    <td>{{ data.sentiment_distribution.positive }}</td>
+                    <td>{{ data.sentiment_distribution.negative }}</td>
+                    <td>{{ data.sentiment_distribution.neutral }}</td>
+                    <td>{{ data.sentiment_distribution.total }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h3>Emotion Engagement by Platform</h3>
+        <table class="platform-table">
+            <thead>
+                <tr>
+                    <th>Platform</th>
+                    <th>Joy</th>
+                    <th>Anger</th>
+                    <th>Sadness</th>
+                    <th>Fear</th>
+                    <th>Neutral</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for platform, data in platform_stats.items() %}
+                <tr>
+                    <td>{{ platform }}</td>
+                    <td>{{ data.emotion_distribution.joy }}</td>
+                    <td>{{ data.emotion_distribution.anger }}</td>
+                    <td>{{ data.emotion_distribution.sadness }}</td>
+                    <td>{{ data.emotion_distribution.fear }}</td>
+                    <td>{{ data.emotion_distribution.neutral }}</td>
+                    <td>{{ data.emotion_distribution.total }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h3>Platform Comparison</h3>
+        <table class="platform-table">
+            <thead>
+                <tr>
+                    <th>Platform</th>
+                    <th>Dominant Sentiment</th>
+                    <th>Dominant Emotion</th>
+                    <th>Total Posts</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for platform, data in platform_stats.items() %}
+                <tr>
+                    <td>{{ platform }}</td>
+                    <td>{{ data.dominant_sentiment|title }}</td>
+                    <td>{{ data.dominant_emotion|title }}</td>
+                    <td>{{ data.sentiment_distribution.total }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="page-break-before: always;"></div>
+
+    <div class="section">
+        <h2>Emotion Engagement by Platform</h2>
+        <div class="stats-container">
+            <table class="stats-table">
+                <tr>
+                    <th>Platform</th>
+                    <th>Total Emotion</th>
+                    <th>Dominant Emotion</th>
+                </tr>
+                {% for platform, stats in platform_stats.items() %}
+                <tr>
+                    <td>{{ platform }}</td>
+                    <td>{{ stats.total_emotion }}</td>
+                    <td>{{ stats.dominant_emotion }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Topics and Keywords</h2>
+        {% for topic in topic_data %}
+        <div class="topic-section">
+            <h3>Topic {{ loop.index }}</h3>
+            <table class="keywords-table">
+                <tr>
+                    <th>Keywords</th>
+                </tr>
+                <tr>
+                    <td>
+                        <ul class="keywords-list">
+                            {% for keyword in topic.keywords %}
+                            <li>{{ keyword }}</li>
+                            {% endfor %}
+                        </ul>
+                    </td>
+                </tr>
+            </table>
+            <div class="representative-posts">
+                <h4>Representative Posts:</h4>
+                <ul>
+                    {% for post in topic.representative_posts %}
+                    <li>{{ post }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if ai_analysis %}
+    <div class="section">
+        <h2 class="section-title">AI Analysis</h2>
+        <div class="ai-analysis">
+            <h3>Summary</h3>
+            <p>{{ ai_analysis.summary }}</p>
+
+            <h3>Key Insights</h3>
+            <ul class="insights-list">
+                {% for insight in ai_analysis.key_insights %}
+                <li>{{ insight }}</li>
+                {% endfor %}
+            </ul>
+
+            <h3>Recommendations</h3>
+            <ul class="recommendations-list">
+                {% for recommendation in ai_analysis.recommendations %}
+                <li>{{ recommendation }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <p>This report was automatically generated using advanced sentiment analysis techniques.</p>
+    </div>
+</body>
+</html> 

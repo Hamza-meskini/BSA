@@ -16,8 +16,6 @@ const getDaysAgoFromPeriod = (period: AnalysisPeriod): number => {
   }
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
 // Function to fetch analysis results from the backend
 export const fetchAnalysisResults = async (
   brand: string,
@@ -56,43 +54,3 @@ export const fetchAnalysisResults = async (
   }
 };
 
-
-// The mockAnalyzeSentiment function is no longer the primary way to get data.
-// It can be kept for testing or removed. 
-// For this change, we are focusing on integrating the backend.
-// If you want to keep it as a fallback, you would need to update its return structure
-// to match the new `AnalysisResults` type (e.g. using `wordCloud` instead of `keywords`).
-
-/*
-Example of how mockAnalyzeSentiment would need to be updated if kept:
-
-// Helper function to generate date strings for the last N days (if needed for mock)
-const generateDates = (period: AnalysisPeriod): string[] => { ... };
-
-export const mockAnalyzeSentiment = async (
-  brand: string,
-  period: AnalysisPeriod
-): Promise<AnalysisResults> => {
-  console.log(`Mock analyzing sentiment for: ${brand} over ${period}`);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-
-  const dates = generateDates(period);
-  // ... (rest of the mock data generation logic) ...
-
-  return {
-    summary: { ... }, // ensure fields match SentimentSummaryData
-    charts: {
-      overallSentimentDistribution: { ... }, // ensure fields match OverallSentimentDistribution
-      sentimentTrend: [ ... ], // ensure fields match SentimentTrendPoint[]
-      overallEmotionDistribution: { ... }, // ensure fields match OverallEmotionDistribution
-      emotionTrend: [ ... ], // ensure fields match EmotionData[]
-      wordCloud: [ ... ], // THIS IS THE KEY CHANGE: was 'keywords'
-      totalSentimentEngagementScores: { ... }, // ensure fields match EngagementScores
-      totalEmotionEngagementScores: { ... }, // ensure fields match EmotionEngagementScores
-      platformComparison: [ ... ], // ensure fields match PlatformSentiment[]
-      platformEmotionComparison: [ ... ], // ensure fields match PlatformEmotionData[]
-    },
-    message: `Mock analysis complete for ${brand}`
-  };
-};
-*/

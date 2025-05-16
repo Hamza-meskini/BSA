@@ -30,7 +30,8 @@ load_dotenv()
 logger.info("Environment variables loaded (API7.py).")
 
 # --- Global Configuration ---
-MAX_TWITTER_PAGES = 1  # Max pages to fetch from Twitter
+MAX_TWITTER_PAGES = 1
+MAX_Reddit_Postes = 100  # Max pages to fetch from Twitter
 HTTP_TIMEOUT = 20  # Timeout for HTTP requests in seconds
 
 # Download NLTK resources at startup
@@ -141,7 +142,7 @@ def _process_reddit_posts_sync(brand_name: str, days_ago: int, cutoff_date: date
     processed_count = 0
     fetch_reddit_start_time = time.time()
     try:
-        for post in subreddit.new(limit=30):  # PRAW's .new() is a generator
+        for post in subreddit.new(limit=MAX_Reddit_Postes):  # PRAW's .new() is a generator
             post_date = datetime.fromtimestamp(post.created_utc)
             if post_date.replace(tzinfo=None) < cutoff_date.replace(tzinfo=None):
                 continue  # Assuming posts are sorted new to old, could break early
@@ -482,27 +483,20 @@ def create_emotion_trend_sync(df, days_ago):
     actual_dates = sorted(df_copy['DateOnly'].unique())
     trend_data = []
     
-    # Get top 7 emotions from the entire dataset
-    all_emotions = [
-        "admiration", "amusement", "anger", "annoyance", "approval", "caring", "confusion", 
-        "curiosity", "desire", "disappointment", "disapproval", "disgust", "embarrassment", 
-        "excitement", "fear", "gratitude", "grief", "joy", "love", "nervousness", "optimism", 
-        "pride", "realization", "relief", "remorse", "sadness", "surprise", "neutral"
-    ]
-    
-    # Get top 7 emotions by frequency
+    # Get all emotions that have at least one value
     emotion_counts = df_copy['Emotion'].value_counts()
-    top_emotions = emotion_counts.head(7).index.tolist()
-    # Always include 'neutral' if not in top 7
-    if 'neutral' not in top_emotions:
-        top_emotions = top_emotions[:6] + ['neutral']
+    emotions = emotion_counts[emotion_counts > 0].index.tolist()
+    
+    # Always include 'neutral' if not already present
+    if 'neutral' not in emotions:
+        emotions.append('neutral')
     
     for date_obj in actual_dates:
         date_str = date_obj.strftime("%Y-%m-%d")
         date_df = df_copy[df_copy['DateOnly'] == date_obj]
         emotion_counts = date_df['Emotion'].value_counts()
         date_emotions = {"date": date_str}
-        for emotion in top_emotions:
+        for emotion in emotions:
             date_emotions[emotion] = int(emotion_counts.get(emotion, 0))
         trend_data.append(date_emotions)
     return sorted(trend_data, key=lambda x: x["date"])
@@ -659,26 +653,27 @@ def create_overall_emotion_distribution_sync(df):
     if df.empty or 'Emotion' not in df.columns or 'Score' not in df.columns:
         return {"neutral": 100.0}
     
-    # Get top 7 emotions by frequency
+    # Get all emotions that have at least one value
     emotion_counts = df['Emotion'].value_counts()
-    top_emotions = emotion_counts.head(7).index.tolist()
-    # Always include 'neutral' if not in top 7
-    if 'neutral' not in top_emotions:
-        top_emotions = top_emotions[:6] + ['neutral']
+    emotions = emotion_counts[emotion_counts > 0].index.tolist()
+    
+    # Always include 'neutral' if not already present
+    if 'neutral' not in emotions:
+        emotions.append('neutral')
     
     emotion_weight_sum = df.groupby('Emotion')['Score'].sum()
     total_score = df['Score'].sum()
     
-    distribution = {e: 0.0 for e in top_emotions}
+    distribution = {e: 0.0 for e in emotions}
     
     if total_score > 0:
-        for emotion in top_emotions:
+        for emotion in emotions:
             distribution[emotion] = round(100 * float(emotion_weight_sum.get(emotion, 0)) / total_score, 1)
     else:
         emotion_counts = df['Emotion'].value_counts()
         total_counts = len(df)
         if total_counts > 0:
-            for emotion in top_emotions:
+            for emotion in emotions:
                 distribution[emotion] = round(100 * float(emotion_counts.get(emotion, 0)) / total_counts, 1)
         else:
             return {"neutral": 100.0}
@@ -700,8 +695,6 @@ def create_overall_emotion_distribution_sync(df):
         if final_sum != 100.0:
             diff = 100.0 - final_sum
             if "neutral" in distribution: distribution["neutral"] = round(distribution["neutral"] + diff, 1)
-    
-    if "neutral" in distribution and distribution["neutral"] < 0: distribution["neutral"] = 0.0
     
     return distribution
 
