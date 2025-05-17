@@ -13,13 +13,12 @@ interface TotalEmotionEngagementChartProps {
 // Using a similar config to EmotionDistributionPieChart for consistency
 const emotionVisualConfig = {
   joy: { label: "Joy", color: "hsl(var(--chart-1))" },
-  love: { label: "Love", color: "hsl(var(--chart-5))" },
-  anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
+  anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
   surprise: { label: "Surprise", color: "hsl(var(--accent))" },
-  neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" }, // Emotion neutral
+  neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
+  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
 } satisfies Record<keyof EmotionEngagementScores, { label: string; color: string }>;
 
 
@@ -38,7 +37,7 @@ const TotalEmotionEngagementChart: React.FC<TotalEmotionEngagementChartProps> = 
     acc[item.name] = { label: item.name, color: item.fill };
     return acc;
   }, {} as Record<string, {label: string, color: string}>);
-  chartContainerConfig.value = { label: "Engagement Score" };
+  chartContainerConfig.value = { label: "Engagement Score", color: "hsl(var(--muted-foreground))" };
 
 
   if (chartData.length === 0) {

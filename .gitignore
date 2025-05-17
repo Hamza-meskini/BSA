@@ -66,3 +66,15 @@ backend/data/
 # Genkit State (if stored locally)
 .genkit/log/
 .genkit/trace/
+
+# Ignore analysis results and data directories
+analysis_results/
+data/
+
+# Ignore all files in these directories
+analysis_results/*
+data/*
+
+# Keep the directories themselves
+!analysis_results/.gitkeep
+!data/.gitkeep

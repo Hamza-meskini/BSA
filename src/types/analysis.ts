@@ -44,13 +44,12 @@ export interface PlatformLikes {
 export interface PlatformEmotionData {
   platform: string; // e.g., 'twitter', 'reddit', 'news'
   joy: number;
-  love: number;
-  anger: number;
   sadness: number;
+  anger: number;
   fear: number;
-  disgust: number;
   surprise: number;
   neutral: number;
+  disgust: number;
 }
 
 /**
@@ -71,29 +70,26 @@ export interface SentimentSummaryData {
 export interface EmotionData {
   date: string;
   joy: number;
-  love: number;
-  anger: number;
   sadness: number;
+  anger: number;
   fear: number;
-  disgust: number;
   surprise: number;
   neutral: number;
+  disgust: number;
 }
 
 /**
- * Represents the overall distribution of emotions.
- * Keys are emotion names (e.g., "joy", "anger"), values are percentages or counts.
+ * Represents the overall emotion distribution.
  */
-export type OverallEmotionDistribution = {
+export interface OverallEmotionDistribution {
   joy: number;
-  anger: number;
   sadness: number;
+  anger: number;
   fear: number;
-  disgust: number;
   surprise: number;
   neutral: number;
-  [key: string]: number; // To allow for dynamic emotion keys if needed
-};
+  disgust: number;
+}
 
 /**
  * Represents the overall distribution of sentiment (positive, negative, neutral).
@@ -118,18 +114,16 @@ export interface EngagementScores {
 }
 
 /**
- * Represents total engagement scores (likes, upvotes, platform scores) by emotion.
+ * Represents emotion engagement scores.
  */
 export interface EmotionEngagementScores {
   joy: number;
-  love: number;
-  anger: number;
   sadness: number;
+  anger: number;
   fear: number;
-  disgust: number;
   surprise: number;
-  neutral: number; // emotion neutral
-  [key: string]: number; // for flexibility
+  neutral: number;
+  disgust: number;
 }
 
 

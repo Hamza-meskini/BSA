@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 import dateparser
 from urllib.parse import urlparse
 import re
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import importlib.util
 from sklearn.feature_extraction.text import CountVectorizer
 import os
 import nltk
 from dotenv import load_dotenv
 import logging
+import google.generativeai as genai
 
 # --- Logger Setup ---
 logging.basicConfig(
@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 logger.info("Environment variables loaded (API7.py).")
+
+# Initialize Gemini API
+GEMINI_API_KEY = os.getenv("GOOGLE_GENAI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("GOOGLE_GENAI_API_KEY not found in environment variables")
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 # --- Global Configuration ---
 MAX_TWITTER_PAGES = 1
@@ -54,52 +62,22 @@ except LookupError:
 torch_installed = importlib.util.find_spec("torch") is not None
 logger.info(f"PyTorch installed: {torch_installed}")
 
-# Initialize emotion detection model globally
-emotion_model_load_start = time.time()
-logger.info("Loading emotion detection model: bhadresh-savani/distilbert-base-uncased-emotion")
-emotion_model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
-emotion_tokenizer = AutoTokenizer.from_pretrained(emotion_model_name)
-emotion_model = AutoModelForSequenceClassification.from_pretrained(emotion_model_name)
-emotion_pipeline = pipeline("text-classification", model=emotion_model, tokenizer=emotion_tokenizer, top_k=1,
-                            truncation=True, max_length=512)
-logger.info(f"Emotion detection model loaded in {time.time() - emotion_model_load_start:.2f} seconds.")
-
 # Define emotion to sentiment mapping
 emotion_to_sentiment = {
     # Positive emotions
     "joy": "positive",
-    "love": "positive",
-    "admiration": "positive",
-    "amusement": "positive",
-    "approval": "positive",
-    "caring": "positive",
-    "excitement": "positive",
-    "gratitude": "positive",
-    "optimism": "positive",
-    "pride": "positive",
-    "relief": "positive",
-    "realization": "positive",
     
     # Negative emotions
     "anger": "negative",
-    "annoyance": "negative",
-    "disappointment": "negative",
-    "disapproval": "negative",
-    "disgust": "negative",
-    "embarrassment": "negative",
     "fear": "negative",
-    "grief": "negative",
-    "nervousness": "negative",
-    "remorse": "negative",
     "sadness": "negative",
+    "disgust": "negative",
     
     # Neutral emotions
-    "confusion": "neutral",
-    "curiosity": "neutral",
-    "desire": "neutral",
     "surprise": "neutral",
     "neutral": "neutral"
 }
+
 
 # --- Synchronous Helper Functions (to be run in threadpool if CPU/IO bound) ---
 
@@ -375,49 +353,82 @@ async def scrape_brand_data(brand_name: str, days_ago: int):
 
 # --- Text Cleaning and NLP (Synchronous functions, applied via threadpool) ---
 def clean_text_sync(text):
-    # Define slang to emotion mapping
-    SLANG_TO_EMOTION_MAP = {
-        "snapped": "joy",
-        "fire": "joy",
-        "slaps": "admiration",
-        "ate": "pride",
-        "ate it up": "joy",
-        "goes hard": "admiration",
-        "chef's kiss": "satisfaction",
-        "dead": "amusement",
-        "i'm dead": "amusement",
-        "no cap": "confidence",
-        "lowkey": "uncertainty",
-        "highkey": "confidence",
-        "vibe": "calm",
-        "vibes": "joy",
-        "go off": "empowerment",
-        "periodt": "assertiveness",
-        "flex": "pride",
-        "crying": "amusement",
-        "that's wild": "surprise",
-        "mad good": "joy"
-    }
-    
     # Convert text to string and lowercase
     text = str(text).lower()
     
-    # Check for slang phrases first (longer phrases before shorter ones)
-    for slang, emotion in sorted(SLANG_TO_EMOTION_MAP.items(), key=len, reverse=True):
-        if slang in text:
-            # Replace the slang with its emotion to help the model understand the context
-            text = text.replace(slang, emotion)
+    # Remove URLs
+    text = re.sub(r"http\S+", "", text)
+    # Remove mentions
+    text = re.sub(r"@\w+", "", text)
+    # Remove only the hashtag symbol but keep the word
+    text = re.sub(r"#(\w+)", r"\1", text)
     
-    # Regular text cleaning
-    text = re.sub(r"http\S+", "", text)  # Remove URLs
-    text = re.sub(r"@\w+", "", text)  # Remove mentions
-    text = re.sub(r"#(\w+)", r"\1", text)  # Remove hashtag symbol but keep the word
+    # Normalize whitespace (replace multiple spaces with one)
+    text = re.sub(r"\s+", " ", text)
     
-    # Keep emojis by removing only punctuation, not unicode symbols
-    text = re.sub(r"[^\w\s\u263a-\U0001f645]", "", text)  # Allow basic emoji ranges
-    
-    text = re.sub(r"\s+", " ", text)  # Normalize whitespace
     return text.strip()
+
+
+async def process_single_batch(batch: list[str], batch_index: int) -> list[tuple[str, float]]:
+    try:
+        prompt = f"""Analyze the following texts and determine the primary emotion for each.
+        For each text, choose from these emotions only: joy, sadness, anger, fear, surprise, neutral, disgust.
+        Return the response in this exact format for each text, separated by newlines:
+        emotion
+        
+        Example response format:
+        joy
+        sadness
+        neutral
+        
+        Texts:
+        {chr(10).join(f'{j+1}. {text}' for j, text in enumerate(batch))}"""
+        
+        response = await run_in_threadpool(
+            model.generate_content,
+            prompt
+        )
+        
+        # Parse the response
+        lines = response.text.strip().split('\n')
+        results = []
+        for line in lines:
+            emotion = line.strip().lower()
+            # Validate emotion is in our expected list
+            if emotion in ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]:
+                results.append((emotion, 1.0))  # Use 1.0 as confidence since we're not getting it from API
+            else:
+                results.append(("neutral", 1.0))
+        
+        # Add neutral results for any failed parsing
+        while len(results) < len(batch):
+            results.append(("neutral", 1.0))
+            
+        return results
+            
+    except Exception as e:
+        logger.error(f"Error getting emotions from Gemini batch {batch_index}: {e}")
+        # Return neutral results for the entire batch if there's an error
+        return [("neutral", 1.0)] * len(batch)
+
+async def get_emotions_from_gemini_batch(texts: list[str], batch_size: int = 10, max_concurrent_batches: int = 3) -> list[tuple[str, float]]:
+    # Split texts into batches
+    batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+    
+    # Process batches with controlled concurrency
+    all_results = []
+    for i in range(0, len(batches), max_concurrent_batches):
+        current_batches = batches[i:i + max_concurrent_batches]
+        batch_results = await asyncio.gather(
+            *[process_single_batch(batch, i + j) for j, batch in enumerate(current_batches)]
+        )
+        all_results.extend([item for sublist in batch_results for item in sublist])
+        
+        # Add a small delay between groups of concurrent batches to avoid rate limiting
+        if i + max_concurrent_batches < len(batches):
+            await asyncio.sleep(0.5)
+    
+    return all_results
 
 
 def get_emotion_output_sync(row):
@@ -435,16 +446,15 @@ def get_emotion_output_sync(row):
         return row
 
     try:
-        # Get emotion from the model
-        emotion_result = emotion_pipeline(text)[0][0]
-        emotion = emotion_result["label"]
-        emotion_score = round(emotion_result["score"], 4)
+        # Get emotion from Gemini API
+        emotion, emotion_score = asyncio.run(get_emotion_from_gemini(text))
         
         # Map emotion to sentiment
         sentiment = emotion_to_sentiment.get(emotion, "neutral")
         sentiment_score = emotion_score  # Use the same confidence score for sentiment
         
     except Exception as e:
+        logger.error(f"Error in emotion analysis: {e}")
         pass  # Keep default neutral values
 
     row["Emotion"] = emotion
@@ -452,6 +462,41 @@ def get_emotion_output_sync(row):
     row["Sentiment"] = sentiment
     row["SentimentScore"] = sentiment_score
     return row
+
+
+async def process_emotions_batch(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+        
+    # Prepare texts for batch processing
+    texts = df["CleanText"].tolist()
+    
+    # Get emotions for all texts in batches
+    emotions = await get_emotions_from_gemini_batch(texts)
+    
+    # If we got more emotions than rows, trim the excess
+    if len(emotions) > len(df):
+        emotions = emotions[:len(df)]
+    # If we got fewer emotions than rows, we should retry the batch
+    elif len(emotions) < len(df):
+        logger.warning(f"Received {len(emotions)} emotions for {len(df)} texts. Retrying batch...")
+        # Retry the batch with a smaller size to ensure we get all emotions
+        batch_size = max(1, len(texts) // 2)  # Reduce batch size by half
+        emotions = await get_emotions_from_gemini_batch(texts, batch_size=batch_size)
+        
+        # If we still don't have enough emotions, log an error
+        if len(emotions) < len(df):
+            logger.error(f"Failed to get emotions for all texts after retry. Got {len(emotions)} emotions for {len(df)} texts.")
+            # Remove rows that didn't get emotions
+            df = df.iloc[:len(emotions)]
+    
+    # Update DataFrame with results
+    df["Emotion"] = [emotion for emotion, _ in emotions]
+    df["EmotionScore"] = [score for _, score in emotions]
+    df["Sentiment"] = df["Emotion"].map(emotion_to_sentiment).fillna("neutral")
+    df["SentimentScore"] = df["EmotionScore"]
+    
+    return df
 
 
 # --- Chart Data Functions (Synchronous Pandas-heavy operations) ---
@@ -576,19 +621,15 @@ def create_platform_emotion_comparison_sync(df):
     df_copy = df.copy()
     df_copy['PlatformMapped'] = df_copy['Platform'].map(platform_mapping).fillna('other')
     
-    # Get top 7 emotions by frequency
-    emotion_counts = df_copy['Emotion'].value_counts()
-    top_emotions = emotion_counts.head(7).index.tolist()
-    # Always include 'neutral' if not in top 7
-    if 'neutral' not in top_emotions:
-        top_emotions = top_emotions[:6] + ['neutral']
+    # Define the emotions we expect from the model
+    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
     
     platform_data = []
     platform_emotion = df_copy.groupby(['PlatformMapped', 'Emotion']).size().unstack(fill_value=0)
     
     for platform, row in platform_emotion.iterrows():
         platform_entry = {"platform": platform}
-        for emotion_col in top_emotions:
+        for emotion_col in expected_emotions:
             platform_entry[emotion_col] = int(row.get(emotion_col, 0))
         platform_data.append(platform_entry)
     return platform_data
@@ -653,27 +694,22 @@ def create_overall_emotion_distribution_sync(df):
     if df.empty or 'Emotion' not in df.columns or 'Score' not in df.columns:
         return {"neutral": 100.0}
     
-    # Get all emotions that have at least one value
-    emotion_counts = df['Emotion'].value_counts()
-    emotions = emotion_counts[emotion_counts > 0].index.tolist()
-    
-    # Always include 'neutral' if not already present
-    if 'neutral' not in emotions:
-        emotions.append('neutral')
+    # Define the emotions we expect from the model
+    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
     
     emotion_weight_sum = df.groupby('Emotion')['Score'].sum()
     total_score = df['Score'].sum()
     
-    distribution = {e: 0.0 for e in emotions}
+    distribution = {e: 0.0 for e in expected_emotions}
     
     if total_score > 0:
-        for emotion in emotions:
+        for emotion in expected_emotions:
             distribution[emotion] = round(100 * float(emotion_weight_sum.get(emotion, 0)) / total_score, 1)
     else:
         emotion_counts = df['Emotion'].value_counts()
         total_counts = len(df)
         if total_counts > 0:
-            for emotion in emotions:
+            for emotion in expected_emotions:
                 distribution[emotion] = round(100 * float(emotion_counts.get(emotion, 0)) / total_counts, 1)
         else:
             return {"neutral": 100.0}
@@ -717,19 +753,15 @@ def create_total_emotion_engagement_scores_sync(df):
     if df.empty or 'Emotion' not in df.columns or 'Score' not in df.columns:
         return {"neutral": 0}
     
-    # Get top 7 emotions by frequency
-    emotion_counts = df['Emotion'].value_counts()
-    top_emotions = emotion_counts.head(7).index.tolist()
-    # Always include 'neutral' if not in top 7
-    if 'neutral' not in top_emotions:
-        top_emotions = top_emotions[:6] + ['neutral']
+    # Define the emotions we expect from the model
+    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
     
     df_copy = df.copy()
     df_copy['Score'] = pd.to_numeric(df_copy['Score'], errors='coerce').fillna(0)
     
     emotion_scores_series = df_copy.groupby('Emotion')['Score'].sum().astype(int)
-    result = {emotion: 0 for emotion in top_emotions}
-    result.update({k: v for k, v in emotion_scores_series.to_dict().items() if k in top_emotions})
+    result = {emotion: 0 for emotion in expected_emotions}
+    result.update({k: v for k, v in emotion_scores_series.to_dict().items() if k in expected_emotions})
     return result
 
 
@@ -758,7 +790,7 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
     
     # 2. Get emotion and sentiment for each row
     logger.info(f"Starting NLP analysis (emotion/sentiment) for {len(df_input)} items...")
-    df_output = df_input.apply(get_emotion_output_sync, axis=1)
+    df_output = asyncio.run(process_emotions_batch(df_input))
     logger.info(f"NLP analysis for {len(df_output)} items completed.")
     
     # 3. Calculate overall scores and summaries
@@ -809,28 +841,12 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
             "percentage": 100.0
         }
     
-    # Get top emotion from the top 7 emotions
+    # Get top emotion based on weighted scores (matching the emotion distribution calculation)
     top_emotion = "Neutral"
     if not df_output.empty and 'Emotion' in df_output.columns and 'Score' in df_output.columns:
-        emotion_counts = df_output['Emotion'].value_counts()
-        top_emotions = emotion_counts.head(7).index.tolist()
-        if 'neutral' not in top_emotions:
-            top_emotions = top_emotions[:6] + ['neutral']
-        
-        weighted_emotion_scores = df_output[df_output['Emotion'].isin(top_emotions)].groupby('Emotion')['Score'].sum()
-        if not weighted_emotion_scores.empty and weighted_emotion_scores.sum() > 0:
-            if normalized_score < -0.15:
-                negative_emotions = ['anger', 'sadness', 'fear', 'disgust', 'disappointment', 'disapproval']
-                top_negative_emotions = weighted_emotion_scores[
-                    weighted_emotion_scores.index.isin(negative_emotions) & (weighted_emotion_scores > 0)]
-                if not top_negative_emotions.empty:
-                    top_emotion = top_negative_emotions.idxmax().capitalize()
-                else:
-                    top_emotion = weighted_emotion_scores.idxmax().capitalize()
-            else:
-                top_emotion = weighted_emotion_scores.idxmax().capitalize()
-        elif not df_output['Emotion'].mode().empty:
-            top_emotion = df_output['Emotion'].mode()[0].capitalize()
+        emotion_weight_sum = df_output.groupby('Emotion')['Score'].sum()
+        if not emotion_weight_sum.empty:
+            top_emotion = emotion_weight_sum.idxmax().capitalize()
     
     logger.info(f"Summary calculations took {time.time() - summary_calc_start_time:.2f}s.")
     
@@ -859,9 +875,11 @@ async def analyze_brand(brand_name: str, days_ago: int):
 
     # --- Default empty response structure ---
     current_date_str = datetime.now().strftime("%Y-%m-%d")
-    empty_emotions_dict = {e: 0.0 for e in ["joy", "anger", "sadness", "fear", "disgust", "surprise", "neutral"]}
+    # Define the emotions we expect from the model
+    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
+    empty_emotions_dict = {e: 0.0 for e in expected_emotions}
     empty_emotions_dict["neutral"] = 100.0
-    empty_emotion_scores_dict = {e: 0 for e in ["joy", "anger", "sadness", "fear", "disgust", "surprise", "neutral"]}
+    empty_emotion_scores_dict = {e: 0 for e in expected_emotions}
 
     empty_response = {
         "summary": {

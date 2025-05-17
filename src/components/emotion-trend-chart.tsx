@@ -14,21 +14,28 @@ import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/compo
 import type { EmotionData } from '@/types/analysis'; // Ensure correct import path
 import { ChartContainer, ChartTooltipContent, ChartLegendContent } from '@/components/ui/chart'; // Import from shadcn/ui
 
+// Define the emotion type to match our model's emotions
+type Emotion = 'joy' | 'sadness' | 'anger' | 'fear' | 'surprise' | 'neutral' | 'disgust';
+
+// Define the type for our transformed data
+type TransformedData = {
+  displayDate: string;
+  date: string;
+} & Record<Emotion, number>;
+
 interface EmotionTrendChartProps {
   emotionTrend: EmotionData[];
 }
 
 const chartConfig = {
   joy: { label: "Joy", color: "hsl(var(--chart-1))" },
-  love: { label: "Love", color: "hsl(var(--chart-5))" }, // Changed to red color
-  anger: { label: "Anger", color: "hsl(var(--chart-5))" }, // Typically red
-  sadness: { label: "Sadness", color: "hsl(var(--chart-3))" }, // Typically blue/grey
-  fear: { label: "Fear", color: "hsl(var(--chart-4))" }, // Typically purple/orange
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" }, // Typically green (can be adjusted)
-  surprise: { label: "Surprise", color: "hsl(var(--accent))" }, // Accent color
+  sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
+  anger: { label: "Anger", color: "hsl(var(--chart-5))" },
+  fear: { label: "Fear", color: "hsl(var(--chart-4))" },
+  surprise: { label: "Surprise", color: "hsl(var(--accent))" },
   neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
-} satisfies Record<string, { label: string; color: string }>;
-
+  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
+} satisfies Record<Emotion, { label: string; color: string }>;
 
 const EmotionTrendChart: React.FC<EmotionTrendChartProps> = ({ emotionTrend }) => {
   if (!emotionTrend || emotionTrend.length === 0) {
@@ -45,14 +52,28 @@ const EmotionTrendChart: React.FC<EmotionTrendChartProps> = ({ emotionTrend }) =
     );
   }
 
-  const formattedData = emotionTrend.map(item => ({
-    ...item,
-    displayDate: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-  }));
+  const transformedData: TransformedData[] = emotionTrend.map(item => {
+    const baseData = {
+      displayDate: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      date: item.date,
+    };
+    
+    const emotionData = Object.fromEntries(
+      (Object.keys(chartConfig) as Emotion[]).map(emotion => [
+        emotion,
+        item[emotion]
+      ])
+    ) as Record<Emotion, number>;
+    
+    return {
+      ...baseData,
+      ...emotionData
+    } as TransformedData;
+  });
 
   // Get emotions that have values in the data
-  const emotionsWithValues = Object.keys(chartConfig).filter(emotion => 
-    formattedData.some(item => item[emotion] > 0)
+  const emotionsWithValues = (Object.keys(chartConfig) as Emotion[]).filter(emotion => 
+    transformedData.some(item => item[emotion] > 0)
   );
 
   // Create filtered chart config with only emotions that have values
@@ -70,7 +91,7 @@ const EmotionTrendChart: React.FC<EmotionTrendChartProps> = ({ emotionTrend }) =
       <CardContent>
         <ChartContainer config={filteredChartConfig} className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={formattedData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <AreaChart data={transformedData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
             <defs>
                 {Object.entries(filteredChartConfig).map(([key, value]) => (
                   <linearGradient key={key} id={`fill${key.charAt(0).toUpperCase() + key.slice(1)}`} x1="0" y1="0" x2="0" y2="1">
