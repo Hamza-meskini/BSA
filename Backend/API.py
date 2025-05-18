@@ -1,5 +1,6 @@
 import asyncio
 import httpx  # For asynchronous HTTP requests
+from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool  # Crucial for running sync code in async
 import praw
 import time
@@ -15,6 +16,10 @@ import nltk
 from dotenv import load_dotenv
 import logging
 import google.generativeai as genai
+from analytics_cache import insert_result_to_cache, get_cached_result
+
+# Create FastAPI app
+app = FastAPI()
 
 # --- Logger Setup ---
 logging.basicConfig(
@@ -77,7 +82,6 @@ emotion_to_sentiment = {
     "surprise": "neutral",
     "neutral": "neutral"
 }
-
 
 # --- Synchronous Helper Functions (to be run in threadpool if CPU/IO bound) ---
 
@@ -371,18 +375,30 @@ def clean_text_sync(text):
 
 async def process_single_batch(batch: list[str], batch_index: int) -> list[tuple[str, float]]:
     try:
-        prompt = f"""Analyze the following texts and determine the primary emotion for each.
-        For each text, choose from these emotions only: joy, sadness, anger, fear, surprise, neutral, disgust.
-        Return the response in this exact format for each text, separated by newlines:
-        emotion
-        
-        Example response format:
-        joy
-        sadness
-        neutral
-        
-        Texts:
-        {chr(10).join(f'{j+1}. {text}' for j, text in enumerate(batch))}"""
+        prompt = f"""You are an expert sentiment and emotion analyzer. Your task is to analyze the following texts and determine the primary emotion for each.
+
+Guidelines for emotion classification:
+1. joy: Positive, happy, excited, delighted, pleased, satisfied, content, enthusiastic, optimistic, cheerful
+2. sadness: Unhappy, disappointed, gloomy, down, regretful, melancholy, sorrowful, depressed, heartbroken, grieving
+3. anger: Frustrated, annoyed, irritated, furious, outraged, angry, mad, enraged, resentful, hostile
+4. fear: Anxious, worried, scared, nervous, concerned, afraid, fearful, terrified, panicked, stressed
+5. surprise: Astonished, amazed, shocked, unexpected, startled, stunned, bewildered, dumbfounded, flabbergasted
+6. disgust: Repulsed, revolted, appalled, offended, repelled, disgusted, nauseated, contemptuous, disdainful
+7. neutral: Balanced, factual, objective, indifferent, calm, composed, unemotional, detached, impartial
+
+For each text, choose ONLY ONE emotion from the list above. Be precise and consistent.
+If a text shows mixed emotions, choose the dominant one.
+Return the response in this exact format, one emotion per line:
+
+emotion
+
+Example response format:
+joy
+sadness
+neutral
+
+Texts to analyze:
+{chr(10).join(f'{j+1}. {text}' for j, text in enumerate(batch))}"""
         
         response = await run_in_threadpool(
             model.generate_content,
@@ -392,16 +408,97 @@ async def process_single_batch(batch: list[str], batch_index: int) -> list[tuple
         # Parse the response
         lines = response.text.strip().split('\n')
         results = []
+        
+        # Expanded emotion mapping for edge cases
+        emotion_mapping = {
+            # Joy related
+            'happiness': 'joy',
+            'excitement': 'joy',
+            'satisfaction': 'joy',
+            'contentment': 'joy',
+            'enthusiasm': 'joy',
+            'optimism': 'joy',
+            'cheerfulness': 'joy',
+            'delight': 'joy',
+            'pleasure': 'joy',
+            'gratitude': 'joy',
+            
+            # Sadness related
+            'disappointment': 'sadness',
+            'grief': 'sadness',
+            'heartbreak': 'sadness',
+            'depression': 'sadness',
+            'melancholy': 'sadness',
+            'sorrow': 'sadness',
+            'regret': 'sadness',
+            'despair': 'sadness',
+            'hopelessness': 'sadness',
+            
+            # Anger related
+            'frustration': 'anger',
+            'annoyance': 'anger',
+            'irritation': 'anger',
+            'rage': 'anger',
+            'resentment': 'anger',
+            'hostility': 'anger',
+            'outrage': 'anger',
+            'fury': 'anger',
+            'wrath': 'anger',
+            
+            # Fear related
+            'anxiety': 'fear',
+            'worry': 'fear',
+            'nervousness': 'fear',
+            'stress': 'fear',
+            'panic': 'fear',
+            'terror': 'fear',
+            'dread': 'fear',
+            'apprehension': 'fear',
+            'unease': 'fear',
+            
+            # Surprise related
+            'amazement': 'surprise',
+            'astonishment': 'surprise',
+            'bewilderment': 'surprise',
+            'shock': 'surprise',
+            'awe': 'surprise',
+            'wonder': 'surprise',
+            
+            # Disgust related
+            'contempt': 'disgust',
+            'revulsion': 'disgust',
+            'repulsion': 'disgust',
+            'aversion': 'disgust',
+            'loathing': 'disgust',
+            'abhorrence': 'disgust',
+            
+            # Neutral related
+            'indifference': 'neutral',
+            'detachment': 'neutral',
+            'impartiality': 'neutral',
+            'objectivity': 'neutral',
+            'calmness': 'neutral',
+            'composure': 'neutral'
+        }
+        
         for line in lines:
             emotion = line.strip().lower()
+            # Check if emotion needs mapping
+            if emotion in emotion_mapping:
+                mapped_emotion = emotion_mapping[emotion]
+                logger.info(f"Mapped emotion '{emotion}' to '{mapped_emotion}'")
+                emotion = mapped_emotion
+            
             # Validate emotion is in our expected list
             if emotion in ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]:
-                results.append((emotion, 1.0))  # Use 1.0 as confidence since we're not getting it from API
+                results.append((emotion, 1.0))
             else:
+                logger.warning(f"Invalid emotion detected: '{emotion}', defaulting to neutral")
                 results.append(("neutral", 1.0))
         
         # Add neutral results for any failed parsing
         while len(results) < len(batch):
+            logger.warning(f"Missing emotion for text in batch {batch_index}, defaulting to neutral")
             results.append(("neutral", 1.0))
             
         return results
@@ -411,7 +508,7 @@ async def process_single_batch(batch: list[str], batch_index: int) -> list[tuple
         # Return neutral results for the entire batch if there's an error
         return [("neutral", 1.0)] * len(batch)
 
-async def get_emotions_from_gemini_batch(texts: list[str], batch_size: int = 10, max_concurrent_batches: int = 3) -> list[tuple[str, float]]:
+async def get_emotions_from_gemini_batch(texts: list[str], batch_size: int = 12, max_concurrent_batches: int = 1) -> list[tuple[str, float]]:
     # Split texts into batches
     batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
     
@@ -424,9 +521,9 @@ async def get_emotions_from_gemini_batch(texts: list[str], batch_size: int = 10,
         )
         all_results.extend([item for sublist in batch_results for item in sublist])
         
-        # Add a small delay between groups of concurrent batches to avoid rate limiting
+        # Add a delay between batches to avoid rate limiting
         if i + max_concurrent_batches < len(batches):
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(2)  # 2 second delay between batches
     
     return all_results
 
@@ -868,6 +965,44 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
 
 
 # --- Main API Function ---
+async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
+    """
+    Store analysis results in Supabase cache with 24-hour TTL.
+    
+    Args:
+        brand_name: The brand name
+        days_ago: Number of days to analyze
+        result: The analysis result to store
+    """
+    try:
+        # Create a period string that's valid for 24 hours
+        # Format: YYYY-MM-DD_HH_to_X_days_ago
+        current_datetime = datetime.now()
+        period = f"{current_datetime.strftime('%Y-%m-%d_%H')}_to_{days_ago}_days_ago"
+        
+        # First check if we already have this result in cache
+        cached_result = await get_cached_result(brand_name, period)
+        if cached_result:
+            logger.info(f"Found cached result for {brand_name} with period {period}")
+            return cached_result
+        
+        # If not in cache, store the new result
+        logger.info(f"Storing new analysis results for {brand_name} in Supabase")
+        logger.info(f"Period: {period}")
+        
+        # Store in Supabase
+        await insert_result_to_cache(brand_name, period, result)
+        logger.info(f"Successfully stored analysis results for {brand_name} in cache")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error storing analysis results in cache: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
+        # Don't raise the error, just log it so the API can still return results
+        logger.warning("Continuing without caching the results")
+        return result
+
 async def analyze_brand(brand_name: str, days_ago: int):
     request_start_time = time.time()
     logger.info(
@@ -903,6 +1038,17 @@ async def analyze_brand(brand_name: str, days_ago: int):
     # --- End default empty response structure ---
 
     try:
+        # Check cache first with 24-hour TTL
+        current_datetime = datetime.now()
+        period = f"{current_datetime.strftime('%Y-%m-%d_%H')}_to_{days_ago}_days_ago"
+        cached_result = await get_cached_result(brand_name, period)
+        if cached_result:
+            logger.info(f"Returning cached result for {brand_name} with period {period}")
+            return cached_result
+
+        # If not in cache, proceed with analysis
+        logger.info(f"No cached result found for {brand_name}, starting analysis...")
+        
         # 1. Scrape data (asynchronously)
         df_scraped = await scrape_brand_data(brand_name, days_ago)
 
@@ -962,42 +1108,8 @@ async def analyze_brand(brand_name: str, days_ago: int):
             "message": f"Successfully analyzed brand: {brand_name}"
         }
 
-        logger.info(f"Request for '{brand_name}' completed in {time.time() - request_start_time:.2f}s.")
-
-        # Create an async function to store results
-        async def store_results_async():
-            try:
-                # Create a results directory if it doesn't exist
-                results_dir = "analysis_results"
-                if not os.path.exists(results_dir):
-                    os.makedirs(results_dir)
-                
-                # Create filename with timestamp
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"{results_dir}/{brand_name}_{timestamp}.txt"
-                
-                # Write results to file
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(f"Analysis Results for {brand_name}\n")
-                    f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Period: Last {days_ago} days\n")
-                    f.write("\n=== Summary ===\n")
-                    f.write(f"Sentiment Score: {response_data['summary']['sentimentScore']['sentiment']} ({response_data['summary']['sentimentScore']['percentage']:.1f}%)\n")
-                    f.write(f"Total Mentions: {response_data['summary']['totalMentions']}\n")
-                    f.write(f"Top Emotion: {response_data['summary']['topEmotion']}\n")
-                    f.write("\n=== Charts Data ===\n")
-                    f.write("Overall Sentiment Distribution:\n")
-                    f.write(f"Positive: {response_data['charts']['overallSentimentDistribution']['positive']:.1f}%\n")
-                    f.write(f"Negative: {response_data['charts']['overallSentimentDistribution']['negative']:.1f}%\n")
-                    f.write(f"Neutral: {response_data['charts']['overallSentimentDistribution']['neutral']:.1f}%\n")
-                    f.write("\n=== Full Results ===\n")
-                    f.write(str(response_data))
-                logger.info(f"Analysis results saved to {filename}")
-            except Exception as e:
-                logger.error(f"Error saving results to file: {e}")
-
-        # Start storing results asynchronously without waiting
-        asyncio.create_task(store_results_async())
+        # Store results in Supabase cache
+        await store_analysis_result(brand_name, days_ago, response_data)
 
         return response_data
 
