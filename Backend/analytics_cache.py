@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any
 from supabase import create_client, Client
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from dotenv import load_dotenv
 
@@ -42,7 +42,8 @@ async def insert_result_to_cache(
         response = supabase.table("analytics_cache").upsert({
             "brand": brand,
             "period": period,
-            "result": result
+            "result": result,
+            "expires_at": (datetime.now() + timedelta(hours=24)).isoformat()
         }).execute()
         
         if hasattr(response, 'error') and response.error:
@@ -67,13 +68,14 @@ async def get_cached_result(
         period: The time period
         
     Returns:
-        The cached result if found, None otherwise
+        The cached result if found and not expired, None otherwise
     """
     try:
         response = supabase.table("analytics_cache")\
             .select("result")\
             .eq("brand", brand)\
             .eq("period", period)\
+            .gt("expires_at", datetime.now().isoformat())\
             .execute()
             
         if hasattr(response, 'error') and response.error:

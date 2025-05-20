@@ -865,39 +865,56 @@ def create_total_emotion_engagement_scores_sync(df):
 # --- Helper for DataFrame processing in threadpool ---
 def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
     if df_input.empty:
-        return df_input, {"sentiment": "neutral", "percentage": 100.0}, 0, "Neutral"
-    
-    # 1. Clean Text
-    logger.info(f"Starting text cleaning for {len(df_input)} rows.")
-    df_input["CleanText"] = df_input["Text"].apply(clean_text_sync)
-    
-    # Remove rows where CleanText is empty after cleaning
-    df_input = df_input[df_input["CleanText"].str.strip().astype(bool)]
-    initial_rows_before_dedup = len(df_input)
-    if initial_rows_before_dedup == 0:
-        logger.warning("No data remaining after text cleaning (all texts were empty).")
         return pd.DataFrame(), {"sentiment": "neutral", "percentage": 100.0}, 0, "Neutral"
+
+    df_output = df_input.copy()
     
-    df_input = df_input.drop_duplicates(subset="CleanText", keep='first').reset_index(drop=True)
-    logger.info(f"Text cleaning and deduplication (from {initial_rows_before_dedup} to {len(df_input)} rows) done.")
-    
-    if df_input.empty:
-        logger.warning("No data remaining for brand after cleaning and deduplication.")
-        return pd.DataFrame(), {"sentiment": "neutral", "percentage": 100.0}, 0, "Neutral"
-    
-    # 2. Get emotion and sentiment for each row
-    logger.info(f"Starting NLP analysis (emotion/sentiment) for {len(df_input)} items...")
-    df_output = asyncio.run(process_emotions_batch(df_input))
-    logger.info(f"NLP analysis for {len(df_output)} items completed.")
-    
-    # 3. Calculate overall scores and summaries
+    # Process the DataFrame
     summary_calc_start_time = time.time()
-    sentiment_weights = {"positive": 1, "neutral": 0, "negative": -1}
     
-    df_output['Score'] = pd.to_numeric(df_output['Score'], errors='coerce').fillna(0)
+    # First, ensure we have the required columns
+    if 'Text' in df_output.columns:
+        # Clean text
+        df_output['CleanText'] = df_output['Text'].apply(clean_text_sync)
+        
+        # Process emotions and sentiments
+        texts = df_output['CleanText'].tolist()
+        emotions = asyncio.run(get_emotions_from_gemini_batch(texts))
+        
+        # Ensure emotions list matches DataFrame length
+        if len(emotions) != len(df_output):
+            logger.warning(f"Emotion count mismatch: {len(emotions)} emotions for {len(df_output)} texts")
+            # Pad or truncate emotions list to match DataFrame length
+            if len(emotions) > len(df_output):
+                logger.info(f"Truncating emotions list from {len(emotions)} to {len(df_output)}")
+                emotions = emotions[:len(df_output)]
+            else:
+                padding_needed = len(df_output) - len(emotions)
+                logger.info(f"Padding emotions list with {padding_needed} neutral emotions (from {len(emotions)} to {len(df_output)})")
+                emotions.extend([('neutral', 0.0)] * padding_needed)
+                logger.info(f"Final emotions list length: {len(emotions)}")
+        
+        # Add emotions and sentiments to DataFrame
+        df_output['Emotion'] = [emotion for emotion, _ in emotions]
+        df_output['EmotionScore'] = [score for _, score in emotions]
+        df_output['Sentiment'] = df_output['Emotion'].map(emotion_to_sentiment).fillna('neutral')
+        df_output['SentimentScore'] = df_output['EmotionScore']
+    else:
+        # If no text column, create default columns
+        df_output['CleanText'] = ''
+        df_output['Emotion'] = 'neutral'
+        df_output['EmotionScore'] = 0.0
+        df_output['Sentiment'] = 'neutral'
+        df_output['SentimentScore'] = 0.0
     
-    df_output["WeightedSentimentValue"] = df_output["Sentiment"].map(sentiment_weights).fillna(0)
-    df_output["WeightedSentimentScore"] = df_output["WeightedSentimentValue"] * df_output["Score"]
+    # Calculate sentiment scores
+    sentiment_values = {
+        'positive': 1.0,
+        'negative': -1.0,
+        'neutral': 0.0
+    }
+    df_output['WeightedSentimentValue'] = df_output['Sentiment'].map(sentiment_values).fillna(0.0)
+    df_output['WeightedSentimentScore'] = df_output['WeightedSentimentValue'] * df_output['Score']
     
     total_post_score_sum = df_output["Score"].sum()
     total_weighted_sentiment_score_sum = df_output["WeightedSentimentScore"].sum()
@@ -938,7 +955,7 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
             "percentage": 100.0
         }
     
-    # Get top emotion based on weighted scores (matching the emotion distribution calculation)
+    # Get top emotion based on weighted scores
     top_emotion = "Neutral"
     if not df_output.empty and 'Emotion' in df_output.columns and 'Score' in df_output.columns:
         emotion_weight_sum = df_output.groupby('Emotion')['Score'].sum()
@@ -946,20 +963,6 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
             top_emotion = emotion_weight_sum.idxmax().capitalize()
     
     logger.info(f"Summary calculations took {time.time() - summary_calc_start_time:.2f}s.")
-    
-    # Save DataFrame to CSV with all columns
-    os.makedirs("data", exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Ensure all columns are included in the saved DataFrame
-    columns_to_save = [
-        "Platform", "Date", "Text", "CleanText", "Score", 
-        "Emotion", "EmotionScore", "Sentiment", "SentimentScore",
-        "WeightedSentimentValue", "WeightedSentimentScore", "Link"
-    ]
-    
-    # Save the processed DataFrame with all columns
-    df_output[columns_to_save].to_csv(f"data/{brand_name}_data_{timestamp}.csv", index=False, encoding='utf-8')
     
     return df_output, sentiment_info, total_mentions, top_emotion
 
@@ -976,9 +979,9 @@ async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
     """
     try:
         # Create a period string that's valid for 24 hours
-        # Format: YYYY-MM-DD_HH_to_X_days_ago
+        # Format: YYYY-MM-DD_to_X_days_ago
         current_datetime = datetime.now()
-        period = f"{current_datetime.strftime('%Y-%m-%d_%H')}_to_{days_ago}_days_ago"
+        period = f"{current_datetime.strftime('%Y-%m-%d')}_to_{days_ago}_days_ago"
         
         # First check if we already have this result in cache
         cached_result = await get_cached_result(brand_name, period)
@@ -1040,7 +1043,7 @@ async def analyze_brand(brand_name: str, days_ago: int):
     try:
         # Check cache first with 24-hour TTL
         current_datetime = datetime.now()
-        period = f"{current_datetime.strftime('%Y-%m-%d_%H')}_to_{days_ago}_days_ago"
+        period = f"{current_datetime.strftime('%Y-%m-%d')}_to_{days_ago}_days_ago"
         cached_result = await get_cached_result(brand_name, period)
         if cached_result:
             logger.info(f"Returning cached result for {brand_name} with period {period}")

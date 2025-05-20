@@ -21,7 +21,8 @@ const PDFReportButton = ({ brandName, daysAgo }) => {
                 {
                     responseType: 'blob',
                     headers: {
-                        'Accept': 'application/pdf'
+                        'Accept': 'application/pdf',
+                        'X-API-Key': 'h_0bdkHAgPzYRhDHefVMLO97O9UymLWFZ0GelREVf-g'  // Use the actual API key
                     }
                 }
             );

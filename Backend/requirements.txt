@@ -11,3 +11,7 @@ python-dotenv
 nltk
 weasyprint
 jinja2
+google-generativeai
+supabase
+uvicorn
+python-multipart

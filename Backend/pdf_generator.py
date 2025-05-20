@@ -8,6 +8,8 @@ import logging
 import base64
 from io import BytesIO
 from PIL import Image
+import tempfile
+import shutil
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,13 +19,13 @@ class PDFGenerator:
     def __init__(self):
         try:
             self.template_dir = Path(__file__).parent / 'templates'
-            self.output_dir = Path(__file__).parent / 'analysis_results'
+            # Create a temporary directory for PDF generation
+            self.temp_dir = Path(tempfile.mkdtemp())
             logger.info(f"Template directory: {self.template_dir}")
-            logger.info(f"Output directory: {self.output_dir}")
+            logger.info(f"Temporary directory: {self.temp_dir}")
             
-            # Create directories if they don't exist
+            # Create template directory if it doesn't exist
             self.template_dir.mkdir(exist_ok=True)
-            self.output_dir.mkdir(exist_ok=True)
             
             # Initialize Jinja2 environment
             self.env = Environment(loader=FileSystemLoader(str(self.template_dir)))
@@ -31,6 +33,15 @@ class PDFGenerator:
         except Exception as e:
             logger.error(f"Error initializing PDFGenerator: {str(e)}", exc_info=True)
             raise
+
+    def __del__(self):
+        """Clean up temporary directory when the object is destroyed"""
+        try:
+            if hasattr(self, 'temp_dir') and self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir)
+                logger.info(f"Cleaned up temporary directory: {self.temp_dir}")
+        except Exception as e:
+            logger.error(f"Error cleaning up temporary directory: {str(e)}")
 
     def generate_pdf(self, analysis_data, sentiment_data, emotion_data, topic_data, charts=None, ai_analysis=None, platform_stats=None):
         """
@@ -73,16 +84,14 @@ class PDFGenerator:
                     # Save to a temporary file with a unique name
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     chart_filename = f"temp_chart_{timestamp}_{len(processed_charts)}.png"
-                    chart_path = self.output_dir / chart_filename
+                    chart_path = self.temp_dir / chart_filename
                     
                     # Save the image
                     image.save(chart_path)
                     logger.info(f"Saved chart to: {chart_path}")
-                    logger.info(f"Chart file exists: {chart_path.exists()}")
-                    logger.info(f"Chart file size: {chart_path.stat().st_size} bytes")
                     
                     # Use a relative path for the template
-                    relative_path = chart_path.relative_to(self.output_dir)
+                    relative_path = chart_path.relative_to(self.temp_dir)
                     logger.info(f"Using relative path: {relative_path}")
                     
                     processed_charts.append({
@@ -126,26 +135,27 @@ class PDFGenerator:
         html_content = template.render(**context)
         logger.info("Template rendered successfully")
         
-        # Generate PDF
+        # Generate PDF in temporary directory
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        pdf_path = self.output_dir / f"report_{timestamp}.pdf"
+        pdf_path = self.temp_dir / f"report_{timestamp}.pdf"
         logger.info(f"Generating PDF at: {pdf_path}")
         
-        # Create PDF with base_url set to the output directory
-        HTML(string=html_content, base_url=str(self.output_dir)).write_pdf(str(pdf_path))
+        # Create PDF with base_url set to the temporary directory
+        HTML(string=html_content, base_url=str(self.temp_dir)).write_pdf(str(pdf_path))
         logger.info("PDF generated successfully")
         
-        # Clean up temporary chart files
+        # Clean up temporary chart files but keep the PDF
         for chart in processed_charts:
             try:
-                chart_path = self.output_dir / chart['data']
+                chart_path = self.temp_dir / chart['data']
                 if chart_path.exists():
                     chart_path.unlink()
                     logger.info(f"Removed temporary chart file: {chart_path}")
             except Exception as e:
                 logger.error(f"Error removing temporary chart file {chart_path}: {str(e)}")
         
-        return str(pdf_path)
+        # Return both the PDF path and the temporary directory
+        return str(pdf_path), self.temp_dir
 
 # Example usage:
 if __name__ == "__main__":

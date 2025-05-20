@@ -104,7 +104,6 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -120,3 +119,47 @@ wheels/
 
 # Logs
 *.log
+
+# Node
+node_modules/
+.next/
+out/
+build/
+.DS_Store
+*.pem
+.env*.local
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Project specific
+Backend/analysis_results/
+Backend/data/
+*.pdf
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Production
+/build
+/dist
+
+# Misc
+.DS_Store
+*.pem
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
