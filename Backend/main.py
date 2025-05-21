@@ -1,7 +1,7 @@
 # --- main.py ---
 from fastapi import FastAPI, HTTPException, Body, Request, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
@@ -19,15 +19,19 @@ import shutil
 # Load environment variables
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Create the main FastAPI application instance
 app = FastAPI(title="Brand Sentiment Analysis API")
 
 # Get frontend URL and API key from environment variables
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:9002")  # Updated to match your frontend URL
-API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))  # Generate a secure key if not provided
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:9002")
+API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))
 
 # API Key security
 API_KEY_NAME = "X-API-Key"
@@ -45,27 +49,28 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 # Add CORS middleware with strict configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:9002"],  # Only allow requests from frontend
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],  # Add OPTIONS for preflight requests
-    allow_headers=["Content-Type", "Accept", API_KEY_NAME, "Origin"],  # Add Origin header
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
     expose_headers=["*"],
-    max_age=3600,  # Cache preflight requests for 1 hour
+    max_age=3600,
 )
 
 # Add security headers middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    logger.info(f"Processing request: {request.method} {request.url.path}")
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "http://localhost:9002"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = f"Content-Type, Accept, {API_KEY_NAME}, Origin"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
+    # Only add CORS headers for non-health check requests
+    if request.url.path != "/":
+        response.headers["Access-Control-Allow-Origin"] = "http://localhost:9002"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = f"Content-Type, Accept, {API_KEY_NAME}, Origin"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src http://localhost:9002"
     return response
 
 # Add request validation middleware
@@ -126,14 +131,11 @@ async def api_analyze_brand_endpoint(
     if days_ago <= 0:
         raise HTTPException(status_code=400, detail="days_ago parameter must be positive.")
     try:
-        # Directly call the imported async function from API2.py
         results = await analyze_brand(brand_name, days_ago)
         logger.info(f"Successfully completed analysis for {brand_name}")
         return results
     except Exception as e:
-        # Log the full exception for debugging purposes
         logger.exception(f"An unexpected error occurred during analysis for {brand_name}: {e}")
-        # Return a generic error message to the client
         raise HTTPException(status_code=500, detail=f"An internal error occurred during analysis.")
 
 @app.post("/generate-pdf-report")
@@ -182,19 +184,19 @@ async def generate_pdf_report(request: Request):
         logger.error(f"Error generating PDF: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Other Example/Utility Endpoints ---
+# --- Root Endpoint ---
 @app.get("/")
 async def root():
     """
-    Root endpoint providing a welcome message and API usage hint.
+    Root endpoint for health check.
     """
-    return {
-        "message": "Welcome to the Brand Analysis API.",
-        "usage_example": "/api/Google/7",
-        "docs": "/docs",  # Link to Swagger UI
-        "note": "API key required for analysis endpoints"
-        }
+    logger.info("Health check request received")
+    return JSONResponse(
+        content={"status": "healthy"},
+        status_code=200
+    )
 
+# --- Other Example/Utility Endpoints ---
 @app.get("/hello/{name}")
 async def say_hello(name: str):
     """
