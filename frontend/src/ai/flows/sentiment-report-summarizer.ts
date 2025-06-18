@@ -33,7 +33,30 @@ const SentimentReportSummarizerInputSchema = z.object({
     positive: z.number(),
     negative: z.number(),
     neutral: z.number()
-  })).optional().describe('Sentiment trend over time.')
+  })).optional().describe('Sentiment trend over time.'),
+  relevantPosts: z.object({
+    positive: z.array(z.object({
+      platform: z.string(),
+      text: z.string(),
+      date: z.string().optional(),
+      link: z.string(),
+      score: z.number().optional()
+    })).optional(),
+    negative: z.array(z.object({
+      platform: z.string(),
+      text: z.string(),
+      date: z.string().optional(),
+      link: z.string(),
+      score: z.number().optional()
+    })).optional(),
+    neutral: z.array(z.object({
+      platform: z.string(),
+      text: z.string(),
+      date: z.string().optional(),
+      link: z.string(),
+      score: z.number().optional()
+    })).optional()
+  }).optional().describe('Relevant posts grouped by sentiment.')
 });
 
 export type SentimentReportSummarizerInput = z.infer<typeof SentimentReportSummarizerInputSchema>;
@@ -104,6 +127,39 @@ const prompt = ai.definePrompt({
   - Positive: {{#each positiveKeywords}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
   - Negative: {{#each negativeKeywords}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
 
+  {{#if relevantPosts}}
+  Relevant Posts:
+  {{#if relevantPosts.positive}}
+  Positive Posts:
+  {{#each relevantPosts.positive}}
+  - Platform: {{{platform}}}
+    Text: {{{text}}}
+    {{#if date}}Date: {{{date}}}{{/if}}
+    {{#if score}}Score: {{{score}}}{{/if}}
+  {{/each}}
+  {{/if}}
+
+  {{#if relevantPosts.negative}}
+  Negative Posts:
+  {{#each relevantPosts.negative}}
+  - Platform: {{{platform}}}
+    Text: {{{text}}}
+    {{#if date}}Date: {{{date}}}{{/if}}
+    {{#if score}}Score: {{{score}}}{{/if}}
+  {{/each}}
+  {{/if}}
+
+  {{#if relevantPosts.neutral}}
+  Neutral Posts:
+  {{#each relevantPosts.neutral}}
+  - Platform: {{{platform}}}
+    Text: {{{text}}}
+    {{#if date}}Date: {{{date}}}{{/if}}
+    {{#if score}}Score: {{{score}}}{{/if}}
+  {{/each}}
+  {{/if}}
+  {{/if}}
+
   Please provide:
   1. A comprehensive summary of the brand's perception
   2. Key insights about sentiment patterns and trends
@@ -116,6 +172,7 @@ const prompt = ai.definePrompt({
   - Recent trends and changes
   - Key topics and concerns
   - Opportunities for improvement
+  - Notable mentions and their impact
   `,
 });
 

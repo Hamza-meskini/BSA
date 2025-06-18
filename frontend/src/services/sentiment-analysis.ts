@@ -22,17 +22,20 @@ export const fetchAnalysisResults = async (
   period: AnalysisPeriod
 ): Promise<AnalysisResults> => {
   const daysAgo = getDaysAgoFromPeriod(period);
-  const apiUrl = `http://localhost:8000/api/${brand}/${daysAgo}`;
+
+  // Debug logging
+  console.log('Environment variables in sentiment-analysis.ts:');
+  console.log('NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
 
   console.log(`Fetching analysis results for: ${brand}, period: ${period} (days: ${daysAgo})`);
 
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-API-Key': 'h_0bdkHAgPzYRhDHefVMLO97O9UymLWFZ0GelREVf-g'
-      }
+      },
+      body: JSON.stringify({ brand, daysAgo })
     });
 
     if (!response.ok) {

@@ -2,22 +2,25 @@
 
 export async function generatePDFReport(pdfData: any) {
     try {
-        if (!process.env.API_KEY) {
-            throw new Error('API_KEY is not defined');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        if (!apiUrl) {
+            throw new Error('NEXT_PUBLIC_API_URL is not defined');
         }
 
-        const response = await fetch(`${process.env.API_URL}/generate-pdf-report`, {
+        console.log('Using API URL:', apiUrl);
+
+        const response = await fetch(`${apiUrl}/generate-pdf-report`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/pdf',
-                'X-API-Key': process.env.API_KEY
+                'Accept': 'application/pdf'
             } as HeadersInit,
             body: JSON.stringify(pdfData)
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorData = await response.json().catch(() => null);
+            throw new Error(errorData?.error || `HTTP error! status: ${response.status}`);
         }
 
         return await response.blob();

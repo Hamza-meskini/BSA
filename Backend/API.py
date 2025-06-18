@@ -105,9 +105,7 @@ def _process_reddit_posts_sync(brand_name: str, days_ago: int, cutoff_date: date
             client_id=os.getenv("REDDIT_CLIENT_ID"),
             client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
             user_agent=os.getenv("REDDIT_USER_AGENT"),
-            # Add username and password if needed for specific PRAW features or private subreddits
-            # username=os.getenv("REDDIT_USERNAME"),
-            # password=os.getenv("REDDIT_PASSWORD"),
+            
         )
         # Check if PRAW instance is read-only or authenticated
         logger.info(
@@ -167,17 +165,12 @@ async def fetch_tweets(client: httpx.AsyncClient, brand_name: str, days_ago: int
 
     fetch_tweets_start_time = time.time()
     since_time_dt = datetime.now() - timedelta(days=days_ago)
-    # Ensure that the 'since' parameter respects the overall 'days_ago' logic and doesn't fetch too old tweets
-    # that would be filtered out by cutoff_date later anyway.
-    # Twitter API might have specific formats or limitations for 'since'.
-    # For this example, we'll rely on the cutoff_date for filtering after fetching.
 
     querystring = {
         "queryType": "Top",  # Or "Latest"
         "query": brand_name,
         "lang": "en",
         "cursor": cursor,
-        # "since": since_time_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), # Example format, check API docs
         "limit": "100"  # API limit per request
     }
 
@@ -192,21 +185,35 @@ async def fetch_tweets(client: httpx.AsyncClient, brand_name: str, days_ago: int
 
         raw_tweets = data.get("tweets", [])
         processed_count = 0
+
+        # Create regex pattern for brand name matching
+        # This will match the brand name as a standalone word or with possessive forms
+        brand_pattern = re.compile(
+            r'\b' + re.escape(brand_name) + r'(?:\'s|\'s|\'s)?\b',
+            re.IGNORECASE
+        )
+
         for tweet in raw_tweets:
             created_at_str = tweet.get("createdAt")
+            tweet_text = tweet.get("text", "")
+
+            # Skip tweets that don't contain the brand name
+            if not brand_pattern.search(tweet_text):
+                continue
+
             # Run synchronous date formatting in threadpool to avoid blocking
             formatted_date = await run_in_threadpool(_format_twitter_date_sync,
                                                      created_at_str) if created_at_str else None
 
-            if tweet.get("text") and formatted_date:
+            if tweet_text and formatted_date:
                 # Parse formatted_date back to datetime for comparison
                 tweet_dt = dateparser.parse(formatted_date)
                 if tweet_dt and tweet_dt.replace(tzinfo=None) >= cutoff_date.replace(tzinfo=None):
                     tweets_data.append({
                         "Platform": "Twitter",
                         "Date": formatted_date,
-                        "Text": tweet.get("text", ""),
-                        "Score": tweet.get("likeCount", 0) + tweet.get("retweetCount", 0),
+                        "Text": tweet_text,
+                        "Score": tweet.get("likeCount", 0),
                         "Link": tweet.get("url", ""),
                     })
                     processed_count += 1
@@ -375,16 +382,66 @@ def clean_text_sync(text):
 
 async def process_single_batch(batch: list[str], batch_index: int) -> list[tuple[str, float]]:
     try:
-        prompt = f"""You are an expert sentiment and emotion analyzer. Your task is to analyze the following texts and determine the primary emotion for each.
+        prompt = f"""You are an expert sentiment and emotion analyzer specializing in brand-related content across all industries. Your task is to analyze the following texts and determine the primary emotion for each.
 
 Guidelines for emotion classification:
-1. joy: Positive, happy, excited, delighted, pleased, satisfied, content, enthusiastic, optimistic, cheerful
-2. sadness: Unhappy, disappointed, gloomy, down, regretful, melancholy, sorrowful, depressed, heartbroken, grieving
-3. anger: Frustrated, annoyed, irritated, furious, outraged, angry, mad, enraged, resentful, hostile
-4. fear: Anxious, worried, scared, nervous, concerned, afraid, fearful, terrified, panicked, stressed
-5. surprise: Astonished, amazed, shocked, unexpected, startled, stunned, bewildered, dumbfounded, flabbergasted
-6. disgust: Repulsed, revolted, appalled, offended, repelled, disgusted, nauseated, contemptuous, disdainful
-7. neutral: Balanced, factual, objective, indifferent, calm, composed, unemotional, detached, impartial
+1. joy: Positive emotions including excitement, enthusiasm, amazement, wonder, delight, satisfaction, and admiration. Examples:
+   - "This is amazing!"
+   - "I'm so excited about this!"
+   - "This is incredible!"
+   - "I'm impressed!"
+   - "This is a game-changer!"
+   - "I love this!"
+   - "This is fantastic!"
+
+2. sadness: Negative emotions including disappointment, regret, frustration, and loss. Examples:
+   - "I'm disappointed with this"
+   - "This is missing something"
+   - "I wish they had..."
+   - "This is not what I expected"
+   - "I'm not happy with this"
+   - "This is a letdown"
+
+3. anger: Strong negative emotions including frustration, irritation, and outrage. Examples:
+   - "This is terrible!"
+   - "I'm furious about this"
+   - "This is completely wrong"
+   - "I can't believe they did this"
+   - "This is unacceptable"
+   - "I'm really angry about this"
+
+4. fear: Concerns about safety, quality, or negative outcomes. Examples:
+   - "I'm worried about this"
+   - "This could be dangerous"
+   - "I'm concerned about..."
+   - "This might cause problems"
+   - "I'm afraid this will..."
+   - "This is risky"
+
+5. frustration: Strong negative reactions to problems, issues, or difficulties. Examples:
+   - "This is so frustrating"
+   - "I can't deal with this anymore"
+   - "This is too complicated"
+   - "Why is this so difficult"
+   - "This is annoying"
+   - "This is problematic"
+
+6. neutral: Factual statements, questions, or balanced observations. Examples:
+   - "This was released yesterday"
+   - "How does this work?"
+   - "This is a new product"
+   - "The company announced..."
+   - "This is available now"
+   - "This is a feature"
+
+Important rules:
+1. Genuine excitement and enthusiasm should be classified as "joy"
+2. Factual statements and questions should be "neutral"
+3. Strong positive reactions should be "joy"
+4. Concerns and worries should be "fear"
+5. Frustration and irritation should be "frustration"
+6. Disappointment should be "sadness"
+7. Unethical or problematic content should be "frustration"
 
 For each text, choose ONLY ONE emotion from the list above. Be precise and consistent.
 If a text shows mixed emotions, choose the dominant one.
@@ -422,6 +479,13 @@ Texts to analyze:
             'delight': 'joy',
             'pleasure': 'joy',
             'gratitude': 'joy',
+            'amazement': 'joy',
+            'wonder': 'joy',
+            'impressed': 'joy',
+            'awe': 'joy',
+            'love': 'joy',
+            'adoration': 'joy',
+            'thrilled': 'joy',
             
             # Sadness related
             'disappointment': 'sadness',
@@ -433,17 +497,17 @@ Texts to analyze:
             'regret': 'sadness',
             'despair': 'sadness',
             'hopelessness': 'sadness',
+            'letdown': 'sadness',
+            'unhappiness': 'sadness',
             
             # Anger related
-            'frustration': 'anger',
-            'annoyance': 'anger',
-            'irritation': 'anger',
-            'rage': 'anger',
-            'resentment': 'anger',
-            'hostility': 'anger',
-            'outrage': 'anger',
             'fury': 'anger',
+            'rage': 'anger',
             'wrath': 'anger',
+            'outrage': 'anger',
+            'hostility': 'anger',
+            'resentment': 'anger',
+            'displeasure': 'anger',
             
             # Fear related
             'anxiety': 'fear',
@@ -455,22 +519,18 @@ Texts to analyze:
             'dread': 'fear',
             'apprehension': 'fear',
             'unease': 'fear',
+            'concern': 'fear',
+            'scared': 'fear',
             
-            # Surprise related
-            'amazement': 'surprise',
-            'astonishment': 'surprise',
-            'bewilderment': 'surprise',
-            'shock': 'surprise',
-            'awe': 'surprise',
-            'wonder': 'surprise',
-            
-            # Disgust related
-            'contempt': 'disgust',
-            'revulsion': 'disgust',
-            'repulsion': 'disgust',
-            'aversion': 'disgust',
-            'loathing': 'disgust',
-            'abhorrence': 'disgust',
+            # Frustration related
+            'annoyance': 'frustration',
+            'irritation': 'frustration',
+            'exasperation': 'frustration',
+            'discontent': 'frustration',
+            'dissatisfaction': 'frustration',
+            'displeasure': 'frustration',
+            'aggravation': 'frustration',
+            'vexation': 'frustration',
             
             # Neutral related
             'indifference': 'neutral',
@@ -478,7 +538,10 @@ Texts to analyze:
             'impartiality': 'neutral',
             'objectivity': 'neutral',
             'calmness': 'neutral',
-            'composure': 'neutral'
+            'composure': 'neutral',
+            'factual': 'neutral',
+            'informative': 'neutral',
+            'balanced': 'neutral'
         }
         
         for line in lines:
@@ -490,7 +553,7 @@ Texts to analyze:
                 emotion = mapped_emotion
             
             # Validate emotion is in our expected list
-            if emotion in ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]:
+            if emotion in ["joy", "sadness", "anger", "fear", "neutral", "frustration"]:
                 results.append((emotion, 1.0))
             else:
                 logger.warning(f"Invalid emotion detected: '{emotion}', defaulting to neutral")
@@ -719,7 +782,7 @@ def create_platform_emotion_comparison_sync(df):
     df_copy['PlatformMapped'] = df_copy['Platform'].map(platform_mapping).fillna('other')
     
     # Define the emotions we expect from the model
-    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
+    expected_emotions = ["joy", "sadness", "anger", "fear", "neutral", "frustration"]
     
     platform_data = []
     platform_emotion = df_copy.groupby(['PlatformMapped', 'Emotion']).size().unstack(fill_value=0)
@@ -792,7 +855,7 @@ def create_overall_emotion_distribution_sync(df):
         return {"neutral": 100.0}
     
     # Define the emotions we expect from the model
-    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
+    expected_emotions = ["joy", "sadness", "anger", "fear", "neutral", "frustration"]
     
     emotion_weight_sum = df.groupby('Emotion')['Score'].sum()
     total_score = df['Score'].sum()
@@ -851,7 +914,7 @@ def create_total_emotion_engagement_scores_sync(df):
         return {"neutral": 0}
     
     # Define the emotions we expect from the model
-    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
+    expected_emotions = ["joy", "sadness", "anger", "fear", "neutral", "frustration"]
     
     df_copy = df.copy()
     df_copy['Score'] = pd.to_numeric(df_copy['Score'], errors='coerce').fillna(0)
@@ -862,8 +925,51 @@ def create_total_emotion_engagement_scores_sync(df):
     return result
 
 
+def create_relevant_posts_sync(df: pd.DataFrame) -> dict:
+    """
+    Process the dataframe to create relevant posts data grouped by sentiment.
+    Returns top 3 posts per platform (Twitter, Reddit, News) for each sentiment category.
+    """
+    try:
+        # Convert date strings to datetime for sorting
+        df['Date'] = pd.to_datetime(df['Date'])
+        
+        # Initialize the structure for relevant posts
+        relevant_posts = {
+            'positive': [],
+            'negative': [],
+            'neutral': []
+        }
+        
+        # Process each sentiment category
+        for sentiment in ['positive', 'negative', 'neutral']:
+            # Filter posts by sentiment
+            sentiment_posts = df[df['Sentiment'] == sentiment]
+            
+            # Process each platform
+            for platform in ['Twitter', 'Reddit', 'Google News']:
+                # Filter posts by platform and sort by score
+                platform_posts = sentiment_posts[sentiment_posts['Platform'] == platform].sort_values('Score', ascending=False)
+                
+                # Take top 3 posts for this platform and sentiment
+                for _, post in platform_posts.head(3).iterrows():
+                    relevant_posts[sentiment].append({
+                        'text': post['Text'],
+                        'link': post['Link'],
+                        'platform': platform,
+                        'sentiment': sentiment,
+                        'score': int(post['Score']),
+                        'date': post['Date'].strftime('%Y-%m-%d %H:%M')
+                    })
+        
+        return relevant_posts
+    except Exception as e:
+        logger.error(f"Error creating relevant posts: {e}", exc_info=True)
+        return {'positive': [], 'negative': [], 'neutral': []}
+
+
 # --- Helper for DataFrame processing in threadpool ---
-def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
+def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str, days_ago: int):
     if df_input.empty:
         return pd.DataFrame(), {"sentiment": "neutral", "percentage": 100.0}, 0, "Neutral"
 
@@ -964,11 +1070,35 @@ def _process_dataframe_sync(df_input: pd.DataFrame, brand_name: str):
     
     logger.info(f"Summary calculations took {time.time() - summary_calc_start_time:.2f}s.")
     
+    # Create relevant posts data
+    relevant_posts_data = create_relevant_posts_sync(df_output)
+
+    # Create the final result dictionary
+    result = {
+        "summary": {
+            "sentimentScore": sentiment_info,
+            "totalMentions": total_mentions,
+            "topEmotion": top_emotion
+        },
+        "charts": {
+            "overallSentimentDistribution": create_overall_sentiment_distribution_sync(df_output),
+            "sentimentTrend": create_sentiment_trend_sync(df_output, days_ago),
+            "overallEmotionDistribution": create_overall_emotion_distribution_sync(df_output),
+            "emotionTrend": create_emotion_trend_sync(df_output, days_ago),
+            "wordCloud": create_sentiment_word_cloud_sync(df_output, 30),
+            "totalSentimentEngagementScores": create_total_sentiment_engagement_scores_sync(df_output),
+            "totalEmotionEngagementScores": create_total_emotion_engagement_scores_sync(df_output),
+            "platformComparison": create_platform_sentiment_comparison_sync(df_output),
+            "platformEmotionComparison": create_platform_emotion_comparison_sync(df_output)
+        },
+        "relevantPostsData": relevant_posts_data
+    }
+
     return df_output, sentiment_info, total_mentions, top_emotion
 
 
 # --- Main API Function ---
-async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
+async def store_analysis_result(brand_name: str, days_ago: int, result: dict, df: pd.DataFrame = None):
     """
     Store analysis results in Supabase cache with 24-hour TTL.
     
@@ -976,6 +1106,7 @@ async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
         brand_name: The brand name
         days_ago: Number of days to analyze
         result: The analysis result to store
+        df: The DataFrame containing all the collected data
     """
     try:
         # Create a period string that's valid for 24 hours
@@ -993,8 +1124,13 @@ async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
         logger.info(f"Storing new analysis results for {brand_name} in Supabase")
         logger.info(f"Period: {period}")
         
+        # Convert DataFrame to CSV string if provided
+        raw_data = None
+        if df is not None:
+            raw_data = df.to_csv(index=False)
+        
         # Store in Supabase
-        await insert_result_to_cache(brand_name, period, result)
+        await insert_result_to_cache(brand_name, period, result, raw_data)
         logger.info(f"Successfully stored analysis results for {brand_name} in cache")
         return result
         
@@ -1008,13 +1144,15 @@ async def store_analysis_result(brand_name: str, days_ago: int, result: dict):
 
 async def analyze_brand(brand_name: str, days_ago: int):
     request_start_time = time.time()
+    # Normalize brand name to lowercase for consistency
+    brand_name = brand_name.lower()
     logger.info(
         f"Received analyze_brand call for: '{brand_name}', days_ago: {days_ago}. Request ID (example): {os.urandom(4).hex()}")
 
     # --- Default empty response structure ---
     current_date_str = datetime.now().strftime("%Y-%m-%d")
     # Define the emotions we expect from the model
-    expected_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral", "disgust"]
+    expected_emotions = ["joy", "sadness", "anger", "fear", "neutral", "frustration"]
     empty_emotions_dict = {e: 0.0 for e in expected_emotions}
     empty_emotions_dict["neutral"] = 100.0
     empty_emotion_scores_dict = {e: 0 for e in expected_emotions}
@@ -1062,7 +1200,7 @@ async def analyze_brand(brand_name: str, days_ago: int):
 
         # 2. Clean, NLP process, and calculate initial summaries (run sync Pandas in threadpool)
         df_processed, sentiment_info, total_mentions, top_emotion = await run_in_threadpool(
-            _process_dataframe_sync, df_scraped, brand_name
+            _process_dataframe_sync, df_scraped, brand_name, days_ago
         )
 
         if df_processed.empty or total_mentions == 0:
@@ -1091,6 +1229,9 @@ async def analyze_brand(brand_name: str, days_ago: int):
 
         logger.info(f"Chart data generation completed in {time.time() - charts_data_start_time:.2f}s.")
 
+        # Create relevant posts data
+        relevant_posts_data = create_relevant_posts_sync(df_processed)
+
         response_data = {
             "summary": {
                 "sentimentScore": sentiment_info,
@@ -1108,11 +1249,12 @@ async def analyze_brand(brand_name: str, days_ago: int):
                 "platformComparison": chart_results[7],
                 "platformEmotionComparison": chart_results[8]
             },
+            "relevantPostsData": relevant_posts_data,
             "message": f"Successfully analyzed brand: {brand_name}"
         }
 
-        # Store results in Supabase cache
-        await store_analysis_result(brand_name, days_ago, response_data)
+        # Store results in Supabase cache with the DataFrame
+        await store_analysis_result(brand_name, days_ago, response_data, df_processed)
 
         return response_data
 

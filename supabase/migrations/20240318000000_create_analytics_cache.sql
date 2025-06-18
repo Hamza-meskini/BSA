@@ -1,6 +1,12 @@
 -- Drop existing table and related objects if they exist
+DROP POLICY IF EXISTS "Allow read access to authenticated users" ON analytics_cache;
+DROP POLICY IF EXISTS "Allow insert/update access to authenticated users" ON analytics_cache;
 DROP TRIGGER IF EXISTS cleanup_expired_cache_trigger ON analytics_cache;
+DROP TRIGGER IF EXISTS update_expires_at_trigger ON analytics_cache;
 DROP FUNCTION IF EXISTS cleanup_expired_cache();
+DROP FUNCTION IF EXISTS update_expires_at();
+DROP FUNCTION IF EXISTS get_cached_result(TEXT, TEXT);
+DROP FUNCTION IF EXISTS get_cached_raw_data(TEXT, TEXT);
 DROP TABLE IF EXISTS analytics_cache;
 
 -- Create analytics_cache table
@@ -9,13 +15,14 @@ CREATE TABLE analytics_cache (
     brand TEXT NOT NULL,
     period TEXT NOT NULL,
     result JSONB NOT NULL,
+    raw_data TEXT,  -- New column to store CSV data
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '24 hours'),
-    UNIQUE(brand, period)
+    expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '24 hours')
 );
 
 -- Create indexes for faster lookups
-CREATE INDEX idx_analytics_cache_brand_period ON analytics_cache(brand, period);
+CREATE UNIQUE INDEX idx_analytics_cache_brand_period_unique 
+ON analytics_cache(LOWER(brand), period);
 CREATE INDEX idx_analytics_cache_expires_at ON analytics_cache(expires_at);
 
 -- Add RLS policies
@@ -73,13 +80,33 @@ BEGIN
     -- First clean up expired entries
     DELETE FROM analytics_cache WHERE expires_at < NOW();
     
-    -- Then get the result
+    -- Then get the result using case-insensitive comparison
     SELECT result INTO v_result
     FROM analytics_cache
-    WHERE brand = p_brand
+    WHERE LOWER(brand) = LOWER(p_brand)
     AND period = p_period
     AND expires_at > NOW();
     
     RETURN v_result;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a function to get raw data with automatic expiration check
+CREATE OR REPLACE FUNCTION get_cached_raw_data(p_brand TEXT, p_period TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_raw_data TEXT;
+BEGIN
+    -- First clean up expired entries
+    DELETE FROM analytics_cache WHERE expires_at < NOW();
+    
+    -- Then get the raw data using case-insensitive comparison
+    SELECT raw_data INTO v_raw_data
+    FROM analytics_cache
+    WHERE LOWER(brand) = LOWER(p_brand)
+    AND period = p_period
+    AND expires_at > NOW();
+    
+    RETURN v_raw_data;
 END;
 $$ LANGUAGE plpgsql; 

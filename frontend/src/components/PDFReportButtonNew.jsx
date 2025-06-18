@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Button, CircularProgress } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 
-const PDFReportButton = ({ brandName, daysAgo }) => {
+const PDFReportButtonNew = ({ brandName, daysAgo }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -12,8 +12,17 @@ const PDFReportButton = ({ brandName, daysAgo }) => {
         setError(null);
         
         try {
+            console.log('Attempting to generate PDF for:', brandName, daysAgo);
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            if (!apiUrl) {
+                throw new Error('NEXT_PUBLIC_API_URL is not defined');
+            }
+
+            const endpoint = `${apiUrl}/generate-pdf-report`;
+            console.log('Using endpoint:', endpoint);
+
             const response = await axios.post(
-                'https://brandsentimentanalysisbackend-production.up.railway.app/generate-pdf-report',
+                endpoint,
                 {
                     brand_name: brandName,
                     days_ago: daysAgo
@@ -21,12 +30,13 @@ const PDFReportButton = ({ brandName, daysAgo }) => {
                 {
                     responseType: 'blob',
                     headers: {
-                        'Accept': 'application/pdf',
-                        'X-API-Key': 'h_0bdkHAgPzYRhDHefVMLO97O9UymLWFZ0GelREVf-g'
+                        'Accept': 'application/pdf'
                     }
                 }
             );
 
+            console.log('PDF generation response received');
+            
             // Create a blob from the PDF data
             const blob = new Blob([response.data], { type: 'application/pdf' });
             
@@ -46,8 +56,8 @@ const PDFReportButton = ({ brandName, daysAgo }) => {
             // Clean up the URL
             window.URL.revokeObjectURL(url);
         } catch (err) {
+            console.error('Detailed error:', err);
             setError('Error generating PDF report. Please try again.');
-            console.error('Error generating PDF:', err);
         } finally {
             setLoading(false);
         }
@@ -74,4 +84,4 @@ const PDFReportButton = ({ brandName, daysAgo }) => {
     );
 };
 
-export default PDFReportButton; 
+export default PDFReportButtonNew; 

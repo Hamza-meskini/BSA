@@ -47,9 +47,8 @@ export interface PlatformEmotionData {
   sadness: number;
   anger: number;
   fear: number;
-  surprise: number;
   neutral: number;
-  disgust: number;
+  frustration: number;
 }
 
 /**
@@ -73,9 +72,8 @@ export interface EmotionData {
   sadness: number;
   anger: number;
   fear: number;
-  surprise: number;
   neutral: number;
-  disgust: number;
+  frustration: number;
 }
 
 /**
@@ -86,9 +84,8 @@ export interface OverallEmotionDistribution {
   sadness: number;
   anger: number;
   fear: number;
-  surprise: number;
   neutral: number;
-  disgust: number;
+  frustration: number;
 }
 
 /**
@@ -121,9 +118,8 @@ export interface EmotionEngagementScores {
   sadness: number;
   anger: number;
   fear: number;
-  surprise: number;
   neutral: number;
-  disgust: number;
+  frustration: number;
 }
 
 
@@ -144,11 +140,33 @@ export interface ChartData {
 }
 
 /**
+ * Represents a single relevant post from any platform.
+ */
+export interface RelevantPost {
+  text: string;
+  link: string;
+  platform: string;
+  sentiment: "positive" | "negative" | "neutral";
+  score: number;
+  date: string;
+}
+
+/**
+ * Represents the collection of relevant posts grouped by sentiment.
+ */
+export interface RelevantPostsData {
+  positive: RelevantPost[];
+  negative: RelevantPost[];
+  neutral: RelevantPost[];
+}
+
+/**
  * Represents the complete analysis results structure from the backend.
  */
 export interface AnalysisResults {
   summary: SentimentSummaryData;
   charts: ChartData;
+  relevantPostsData?: RelevantPostsData;
   message?: string; // Optional message from backend
   error?: string | null; // Optional error message
 }

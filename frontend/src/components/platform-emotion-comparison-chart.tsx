@@ -26,9 +26,8 @@ const emotionChartConfig = {
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
   anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },
-  surprise: { label: "Surprise", color: "hsl(var(--accent))" },
   neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
+  frustration: { label: "Frustration", color: "hsl(25, 70%, 35%)" },
 } satisfies Record<string, { label: string; color: string }>;
 
 const PlatformEmotionComparisonChart: React.FC<PlatformEmotionComparisonChartProps> = ({ data }) => {

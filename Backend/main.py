@@ -15,14 +15,21 @@ import os
 from dotenv import load_dotenv
 import secrets
 import shutil
+import sys
+import pandas as pd
+import numpy as np
+from supabase import create_client, Client
+import traceback
+from analytics_cache import get_or_generate_analytics
 
 # Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
 
@@ -30,8 +37,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Brand Sentiment Analysis API")
 
 # Get frontend URL and API key from environment variables
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:9002")
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+PRODUCTION_URL = os.getenv("PRODUCTION_URL")
 API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))
+
+# Get Supabase configuration
+SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # API Key security
 API_KEY_NAME = "X-API-Key"
@@ -49,7 +61,10 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 # Add CORS middleware with strict configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        FRONTEND_URL,
+        PRODUCTION_URL
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
@@ -62,12 +77,13 @@ app.add_middleware(
 async def add_security_headers(request: Request, call_next):
     logger.info(f"Processing request: {request.method} {request.url.path}")
     response = await call_next(request)
-    # Only add CORS headers for non-health check requests
-    if request.url.path != "/":
-        response.headers["Access-Control-Allow-Origin"] = "http://localhost:9002"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = f"Content-Type, Accept, {API_KEY_NAME}, Origin"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
+    # Add CORS headers for all requests
+    origin = request.headers.get("origin")
+    if origin in [FRONTEND_URL, PRODUCTION_URL]:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = f"Content-Type, Accept, {API_KEY_NAME}, Origin"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -82,7 +98,7 @@ async def validate_request(request: Request, call_next):
         
     # Check if request is coming from allowed origin
     origin = request.headers.get("origin")
-    if origin and origin != "http://localhost:9002":
+    if origin and origin not in [FRONTEND_URL, PRODUCTION_URL]:
         logger.warning(f"Blocked request from unauthorized origin: {origin}")
         raise HTTPException(status_code=403, detail="Unauthorized origin")
     
@@ -93,7 +109,7 @@ async def validate_request(request: Request, call_next):
             raise HTTPException(status_code=400, detail="Content-Type must be application/json")
     
     # Check for API key in headers for frontend requests
-    if origin == "http://localhost:9002":
+    if origin in [FRONTEND_URL, PRODUCTION_URL]:
         api_key = request.headers.get(API_KEY_NAME)
         if not api_key or api_key != API_KEY:
             logger.warning(f"Missing or invalid API key from {request.client.host}")
@@ -184,17 +200,104 @@ async def generate_pdf_report(request: Request):
         logger.error(f"Error generating PDF: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+# Add startup event handler
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    try:
+        logger.info("Starting up application...")
+        
+        # Log Supabase configuration
+        logger.info(f"Supabase URL: {SUPABASE_URL}")
+        logger.info(f"Supabase Key length: {len(SUPABASE_KEY) if SUPABASE_KEY else 0}")
+        
+        # Initialize Supabase client
+        global supabase
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                logger.info("Initializing Supabase client...")
+                supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+                logger.info("Supabase client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Supabase client: {str(e)}")
+                logger.error(traceback.format_exc())
+        else:
+            logger.warning("Supabase credentials not found in environment variables")
+            
+        logger.info("Application startup complete")
+    except Exception as e:
+        logger.error(f"Error during startup: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
 # --- Root Endpoint ---
 @app.get("/")
 async def root():
-    """
-    Root endpoint for health check.
-    """
-    logger.info("Health check request received")
-    return JSONResponse(
-        content={"status": "healthy"},
-        status_code=200
-    )
+    """Health check endpoint."""
+    try:
+        logger.info("Health check request received")
+        
+        # Check if Supabase is configured and connected
+        db_status = "healthy"
+        if not supabase:
+            logger.warning("Supabase client not initialized")
+            db_status = "unhealthy"
+        else:
+            try:
+                # Test Supabase connection with a simple query
+                response = supabase.table("analytics_cache").select("count", count="exact").limit(1).execute()
+                if hasattr(response, 'error') and response.error:
+                    logger.error(f"Supabase health check failed: {response.error}")
+                    db_status = "unhealthy"
+            except Exception as e:
+                logger.error(f"Supabase health check error: {str(e)}")
+                db_status = "unhealthy"
+        
+        # Prepare response
+        response_data = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "services": {
+                "api": "healthy",
+                "database": db_status
+            }
+        }
+        
+        logger.info(f"Health check response: {response_data}")
+        return JSONResponse(content=response_data)
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            },
+            status_code=500
+        )
+
+# Add a simple ping endpoint for basic connectivity testing
+@app.get("/ping", status_code=200)
+async def ping():
+    """Simple ping endpoint for basic connectivity testing."""
+    try:
+        logger.info("Ping request received")
+        response = {"status": "pong", "timestamp": datetime.now().isoformat()}
+        logger.info(f"Ping response: {response}")
+        return JSONResponse(
+            content=response,
+            status_code=200
+        )
+    except Exception as e:
+        logger.error(f"Ping failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            content={"status": "error", "message": str(e)},
+            status_code=500
+        )
 
 # --- Other Example/Utility Endpoints ---
 @app.get("/hello/{name}")

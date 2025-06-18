@@ -16,18 +16,36 @@ logger = logging.getLogger(__name__)
 supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-if not supabase_url or not supabase_key:
-    logger.error("Missing Supabase credentials. Please set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
-    logger.error(f"Current values - URL: {supabase_url}, Key: {'*' * len(supabase_key) if supabase_key else None}")
-    raise ValueError("Missing Supabase credentials")
+# Log Supabase configuration
+logger.info(f"Supabase URL: {supabase_url}")
+logger.info(f"Supabase Key length: {len(supabase_key) if supabase_key else 0}")
 
-logger.info(f"Initializing Supabase client with URL: {supabase_url}")
-supabase: Client = create_client(supabase_url, supabase_key)
+# Initialize Supabase client as None
+supabase: Optional[Client] = None
+
+def initialize_supabase() -> None:
+    """Initialize the Supabase client if credentials are available."""
+    global supabase
+    if not supabase_url or not supabase_key:
+        logger.warning("Supabase credentials not available. Caching will be disabled.")
+        return
+
+    try:
+        logger.info(f"Initializing Supabase client with URL: {supabase_url}")
+        supabase = create_client(supabase_url, supabase_key)
+        logger.info("Supabase client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        supabase = None
+
+# Initialize Supabase on module import
+initialize_supabase()
 
 async def insert_result_to_cache(
     brand: str,
     period: str,
-    result: Dict[str, Any]
+    result: Dict[str, Any],
+    raw_data: Optional[str] = None
 ) -> None:
     """
     Insert or update an analytics result in the cache.
@@ -36,15 +54,25 @@ async def insert_result_to_cache(
         brand: The brand name
         period: The time period (e.g., "2025-05-01_to_2025-05-17")
         result: The analytics result to cache
+        raw_data: Optional CSV string containing the raw data
     """
+    if not supabase:
+        logger.warning("Supabase client not initialized. Skipping cache insertion.")
+        return
+
     try:
         logger.info(f"Attempting to insert result for brand: {brand}, period: {period}")
-        response = supabase.table("analytics_cache").upsert({
+        data = {
             "brand": brand,
             "period": period,
             "result": result,
             "expires_at": (datetime.now() + timedelta(hours=24)).isoformat()
-        }).execute()
+        }
+        
+        if raw_data is not None:
+            data["raw_data"] = raw_data
+            
+        response = supabase.table("analytics_cache").upsert(data).execute()
         
         if hasattr(response, 'error') and response.error:
             logger.error(f"Supabase error: {response.error}")
@@ -70,6 +98,10 @@ async def get_cached_result(
     Returns:
         The cached result if found and not expired, None otherwise
     """
+    if not supabase:
+        logger.warning("Supabase client not initialized. Skipping cache retrieval.")
+        return None
+
     try:
         response = supabase.table("analytics_cache")\
             .select("result")\
@@ -87,7 +119,7 @@ async def get_cached_result(
         return response.data[0]["result"]
         
     except Exception as e:
-        print(f"Error getting cached result: {str(e)}")
+        logger.error(f"Error getting cached result: {str(e)}")
         return None
 
 async def get_or_generate_analytics(
@@ -109,11 +141,11 @@ async def get_or_generate_analytics(
     # Try to get from cache first
     cached_result = await get_cached_result(brand, period)
     if cached_result:
-        print(f"Returning cached result for {brand} {period}")
+        logger.info(f"Returning cached result for {brand} {period}")
         return cached_result
         
     # If not in cache, generate new result
-    print(f"Generating new result for {brand} {period}")
+    logger.info(f"Generating new result for {brand} {period}")
     result = await analyze_brand_func(brand, period)
     
     # Cache the result

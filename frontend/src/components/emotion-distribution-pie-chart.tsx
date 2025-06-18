@@ -16,8 +16,7 @@ const emotionChartConfig = {
   anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
-  surprise: { label: "Surprise", color: "hsl(var(--accent))" },
+  frustration: { label: "Frustration", color: "hsl(25, 70%, 35%)" },
   neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
 } satisfies Record<keyof OverallEmotionDistribution, { label: string; color: string }>;
 

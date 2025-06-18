@@ -15,7 +15,7 @@ import type { EmotionData } from '@/types/analysis'; // Ensure correct import pa
 import { ChartContainer, ChartTooltipContent, ChartLegendContent } from '@/components/ui/chart'; // Import from shadcn/ui
 
 // Define the emotion type to match our model's emotions
-type Emotion = 'joy' | 'sadness' | 'anger' | 'fear' | 'surprise' | 'neutral' | 'disgust';
+type Emotion = 'joy' | 'sadness' | 'anger' | 'fear' | 'neutral' | 'frustration';
 
 // Define the type for our transformed data
 type TransformedData = {
@@ -32,9 +32,8 @@ const chartConfig = {
   sadness: { label: "Sadness", color: "hsl(var(--chart-3))" },
   anger: { label: "Anger", color: "hsl(var(--chart-5))" },
   fear: { label: "Fear", color: "hsl(var(--chart-4))" },
-  surprise: { label: "Surprise", color: "hsl(var(--accent))" },
   neutral: { label: "Neutral", color: "hsl(var(--muted-foreground))" },
-  disgust: { label: "Disgust", color: "hsl(var(--chart-2))" },
+  frustration: { label: "Frustration", color: "hsl(25, 70%, 35%)" },
 } satisfies Record<Emotion, { label: string; color: string }>;
 
 const EmotionTrendChart: React.FC<EmotionTrendChartProps> = ({ emotionTrend }) => {

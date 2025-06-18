@@ -16,3 +16,5 @@ supabase
 uvicorn
 python-multipart
 gunicorn
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==2.2.1+cpu

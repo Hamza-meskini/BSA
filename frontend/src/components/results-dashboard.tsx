@@ -12,6 +12,7 @@ import TotalSentimentScoresBarChart from "@/components/total-sentiment-scores-ba
 import PlatformEmotionComparisonChart from "@/components/platform-emotion-comparison-chart";
 import TotalEmotionEngagementChart from "@/components/total-emotion-engagement-chart"; 
 import {SentimentReportSummary} from "@/components/sentiment-report-summary";
+import {RelevantPostsDisplay} from "@/components/relevant-posts-display";
 import { Smile, Frown, Meh, Heart, ThumbsDown, HelpCircle, Brain, LineChart, PieChart as PieChartIcon, Cloud, MessageSquare, Activity, Users, Bot } from "lucide-react"; // Added Bot
 import type {AnalysisResults} from "@/types/analysis";
 
@@ -192,6 +193,11 @@ export function ResultsDashboard({isLoading, results}: ResultsDashboardProps) {
            <PlatformComparisonChart data={results.charts.platformComparison}/>
            <PlatformEmotionComparisonChart data={results.charts.platformEmotionComparison} />
         </div>
+      </div>
+
+      {/* Section for Relevant Posts Display */}
+      <div id="relevant-posts-section" className="animate-fade-in-up opacity-0 animation-delay-1100 mb-8">
+        <RelevantPostsDisplay data={results.relevantPostsData} />
       </div>
       
       {/* Section for AI Summary Report */}

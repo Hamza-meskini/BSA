@@ -58,6 +58,7 @@ interface BackendResponse {
       anger: number;
       sadness: number;
       fear: number;
+      frustration: number;
       neutral: number;
     }>;
     totalSentimentEngagementScores: {
@@ -72,6 +73,29 @@ interface BackendResponse {
       fear: number;
       neutral: number;
     };
+  };
+  relevantPosts?: {
+    positive?: Array<{
+      platform: string;
+      text: string;
+      date?: string;
+      link: string;
+      score?: number;
+    }>;
+    negative?: Array<{
+      platform: string;
+      text: string;
+      date?: string;
+      link: string;
+      score?: number;
+    }>;
+    neutral?: Array<{
+      platform: string;
+      text: string;
+      date?: string;
+      link: string;
+      score?: number;
+    }>;
   };
   message?: string;
 }
@@ -128,6 +152,12 @@ export function SentimentReportSummary({
         .filter(word => word.sentiment === 'negative')
         .map(word => word.text);
 
+      // Get relevant posts for context
+      const relevantPosts = analysisData.relevantPosts || {};
+      const positivePosts = relevantPosts.positive || [];
+      const negativePosts = relevantPosts.negative || [];
+      const neutralPosts = relevantPosts.neutral || [];
+
       const inputData: SentimentReportSummarizerInput = {
         sentimentScore: analysisData.summary.sentimentScore,
         totalMentions: analysisData.summary.totalMentions,
@@ -136,7 +166,12 @@ export function SentimentReportSummary({
         negativeKeywords,
         emotionDistribution: analysisData.charts.overallEmotionDistribution,
         platformComparison: analysisData.charts.platformComparison,
-        sentimentTrend: analysisData.charts.sentimentTrend
+        sentimentTrend: analysisData.charts.sentimentTrend,
+        relevantPosts: {
+          positive: positivePosts,
+          negative: negativePosts,
+          neutral: neutralPosts
+        }
       };
 
       console.log('Sending input data to AI:', JSON.stringify(inputData, null, 2));
@@ -262,7 +297,7 @@ export function SentimentReportSummary({
           const emotionData = analysisData.charts.platformEmotionComparison.find(p => p.platform === platform.platform);
           const total_sentiment = platform.positive + platform.negative + platform.neutral;
           const total_emotion = emotionData ? 
-            (emotionData.joy + emotionData.anger + emotionData.sadness + emotionData.fear + emotionData.neutral) : 0;
+            (emotionData.joy + emotionData.anger + emotionData.sadness + emotionData.fear + emotionData.frustration + emotionData.neutral) : 0;
           
           return {
             ...acc,
@@ -278,9 +313,11 @@ export function SentimentReportSummary({
                 anger: Math.round(emotionData?.anger || 0),
                 sadness: Math.round(emotionData?.sadness || 0),
                 fear: Math.round(emotionData?.fear || 0),
+                frustration: Math.round(emotionData?.frustration || 0),
                 neutral: Math.round(emotionData?.neutral || 0),
                 total: total_emotion
               },
+              total_emotion: total_emotion,
               dominant_sentiment: Object.entries({
                 positive: platform.positive,
                 negative: platform.negative,
@@ -291,6 +328,7 @@ export function SentimentReportSummary({
                 anger: emotionData.anger,
                 sadness: emotionData.sadness,
                 fear: emotionData.fear,
+                frustration: emotionData.frustration,
                 neutral: emotionData.neutral
               }).reduce((a, b) => a[1] > b[1] ? a : b)[0] : 'neutral'
             }
